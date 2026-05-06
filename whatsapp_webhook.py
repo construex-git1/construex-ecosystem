@@ -509,12 +509,6 @@ ESTRUCTURA DE CARPETAS GENERADA:
 Servidor corriendo...
 ======================================================================
 """)
-<<<<<<< HEAD
-    # IMPORTANTE: Usa el puerto que asigna Render (variable PORT)
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
-=======
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
 if __name__ == '__main__':
     init_db()
     print("""
@@ -536,4 +530,3 @@ Servidor corriendo...
 """)
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
->>>>>>> 7987787bfbe17da7260bff0caa39700ccd5b2f9a
