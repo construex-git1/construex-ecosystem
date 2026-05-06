@@ -508,3 +508,24 @@ Estructura: GET /estructura
 ======================================================================
 """)
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+if __name__ == '__main__':
+    init_db()
+    print("""
+======================================================================
+         CONSTRUEX ECOSYSTEM - CLASIFICACION PRECISA CON IA
+======================================================================
+
+ESTRUCTURA DE CARPETAS GENERADA:
+""")
+    for cat, path in CATEGORIAS_DIR.items():
+        print(f"   📁 {cat}")
+        for subcat in SUBCARPETAS.get(cat, []):
+            print(f"      📂 {subcat}")
+
+    print("""
+======================================================================
+Servidor corriendo...
+======================================================================
+""")
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
