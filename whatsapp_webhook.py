@@ -486,6 +486,10 @@ def home():
         }
     })
 
+# ============================================
+# MAIN - CORREGIDO PARA RENDER
+# ============================================
+
 if __name__ == '__main__':
     init_db()
     print("""
@@ -502,9 +506,9 @@ ESTRUCTURA DE CARPETAS GENERADA:
 
     print("""
 ======================================================================
-Servidor: http://localhost:5000
-Procesar: POST /procesar
-Estructura: GET /estructura
+Servidor corriendo...
 ======================================================================
 """)
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    # IMPORTANTE: Usa el puerto que asigna Render (variable PORT)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
