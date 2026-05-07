@@ -1,6 +1,6 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - LECTURA Y COMPRENSIÓN COMPLETA
+         CONSTRUEX ECOSYSTEM - VERSIÓN CORREGIDA
 ======================================================================
 """
 
@@ -25,7 +25,7 @@ app = Flask(__name__)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-1.5-pro')  # Modelo con 1M de contexto
+    gemini_model = genai.GenerativeModel('gemini-1.5-flash')  # Cambiado a flash (más rápido y estable)
 
 IMAGENES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "imagenes_generadas")
 os.makedirs(IMAGENES_DIR, exist_ok=True)
@@ -52,10 +52,8 @@ def leer_contenido_completo_url(url):
         for element in soup(["script", "style", "nav", "footer", "header", "aside", "iframe", "form"]):
             element.decompose()
         
-        # Buscar contenido principal por selectores comunes
+        # Buscar contenido principal
         contenido_principal = None
-        
-        # Intentar encontrar el artículo
         for selector in ['article', 'main', '.post-content', '.article-content', '.entry-content', '#content', '.content']:
             elemento = soup.select_one(selector)
             if elemento:
@@ -70,26 +68,23 @@ def leer_contenido_completo_url(url):
         # Limpiar texto
         texto = ' '.join(texto.split())
         
-        # Extraer metadatos
+        # Extraer título
         titulo = soup.find('title').text.strip() if soup.find('title') else "Sin título"
         
         # Extraer fecha
         fecha = ""
-        selectores_fecha = ['time', '[datetime]', '.date', '.published', '.post-date', 'meta[property="article:published_time"]']
+        selectores_fecha = ['time', '[datetime]', '.date', '.published', '.post-date']
         for selector in selectores_fecha:
             elemento = soup.select_one(selector)
             if elemento:
-                if selector.startswith('meta'):
-                    fecha = elemento.get('content', '')
-                else:
-                    fecha = elemento.text.strip()
+                fecha = elemento.text.strip()
                 if fecha:
                     break
         
         return {
             "exito": True,
             "titulo": titulo,
-            "texto_completo": texto[:15000],  # 15k caracteres es suficiente para noticias
+            "texto_completo": texto[:10000],
             "fecha_publicacion": fecha,
             "url": url,
             "dominio": urlparse(url).netloc
@@ -100,57 +95,70 @@ def leer_contenido_completo_url(url):
 
 
 def analizar_noticia_con_gemini(titulo, texto_completo, url):
-    """Usa Gemini para analizar la noticia como un periodista humano"""
+    """Usa Gemini para analizar la noticia"""
     
     prompt = f"""
-    Eres un periodista experto y analista de tendencias. Analiza la siguiente noticia y extrae información clave como lo haría un humano que lee el artículo completo.
+    Analiza la siguiente noticia y extrae la información más importante.
     
     TÍTULO: {titulo}
-    URL: {url}
     
-    TEXTO COMPLETO DE LA NOTICIA:
-    {texto_completo[:12000]}
+    TEXTO DE LA NOTICIA:
+    {texto_completo[:8000]}
     
-    Por favor, responde con un JSON EXACTAMENTE con esta estructura:
+    Responde SOLO con JSON en este formato. Si no encuentras algo, déjalo vacío:
     
     {{
-        "resumen_ejecutivo": "Resumen de 3-4 líneas explicando DE QUÉ TRATA la noticia (qué pasó, cuándo, dónde, quiénes están involucrados)",
-        "datos_clave": {{
-            "fecha": "Fecha clave del evento si aparece en la noticia",
-            "lugar": "Lugar donde ocurre el evento",
-            "protagonistas": ["persona1", "persona2"],
-            "cifras": ["cifra1", "cifra2"],
-            "plazos": ["fecha límite o plazo importante"]
-        }},
-        "contexto": "Explicación del contexto: por qué es importante esta noticia ahora",
-        "impacto": "Impacto potencial en el sector o la sociedad",
-        "puntos_clave_para_viralizar": [
-            "dato sorprendente 1",
-            "dato sorprendente 2", 
-            "frase impactante 3",
-            "conclusión relevante 4"
-        ],
-        "sugerencia_angulo_viral": "Un ángulo específico para hacer viral esta noticia (ej: 'Las 3 cosas que no sabías sobre...', 'El dato que cambiará tu forma de ver...')",
-        "hashtags_sugeridos": ["#Hashtag1", "#Hashtag2", "#Hashtag3", "#Hashtag4", "#Hashtag5"]
+        "resumen": "Resumen corto de la noticia (2-3 líneas)",
+        "fecha": "Fecha del evento si aparece",
+        "lugar": "Lugar si aparece",
+        "cifras": ["cifra1", "cifra2"],
+        "protagonistas": ["persona1", "persona2"],
+        "contexto": "Contexto breve",
+        "impacto": "Impacto potencial"
     }}
-    
-    IMPORTANTE: No inventes información. Si algo no aparece en el texto, déjalo vacío.
-    Los puntos clave para viralizar deben ser DATOS REALES y SORPRENDENTES de la noticia.
     """
     
     try:
         respuesta = gemini_model.generate_content(prompt)
         texto = respuesta.text
+        
+        # Limpiar JSON
         if "```json" in texto:
             texto = texto.split("```json")[1].split("```")[0]
+        elif "```" in texto:
+            texto = texto.split("```")[1].split("```")[0]
+        
         return json.loads(texto.strip())
+        
     except Exception as e:
-        print(f"Error en análisis Gemini: {e}")
-        return None
+        print(f"Error Gemini: {e}")
+        return {
+            "resumen": texto_completo[:300],
+            "fecha": "",
+            "lugar": "",
+            "cifras": [],
+            "protagonistas": [],
+            "contexto": "",
+            "impacto": ""
+        }
 
 
-def generar_texto_viral(analisis, categoria, viralidad):
-    """Genera texto optimizado para redes basado en el análisis real de la noticia"""
+def clasificar_categoria(titulo, texto):
+    texto_lower = f"{titulo} {texto[:500]}".lower()
+    
+    if any(p in texto_lower for p in ["construc", "centro comercial", "mall", "obra", "edificio", "canal", "construcción"]):
+        return "Construccion", 9
+    elif any(p in texto_lower for p in ["negocio", "emprend", "empresa", "ventas", "inversion", "empleo", "trabajo"]):
+        return "Emprendimiento", 8
+    elif any(p in texto_lower for p in ["curso", "aprender", "educacion", "certificacion", "estudio"]):
+        return "Construex University", 7
+    elif any(p in texto_lower for p in ["salud", "medico", "bienestar", "dieta", "ejercicio"]):
+        return "Salud", 7
+    return "Automejora", 6
+
+
+def generar_texto_redes(titulo, analisis, categoria, viralidad):
+    """Genera texto para redes sociales"""
     
     emojis = {
         "Construccion": "🏗️",
@@ -161,68 +169,42 @@ def generar_texto_viral(analisis, categoria, viralidad):
     }
     emoji = emojis.get(categoria, "📚")
     
-    # Extraer datos clave del análisis
-    puntos = analisis.get('puntos_clave_para_viralizar', [])
-    datos = analisis.get('datos_clave', {})
-    contexto = analisis.get('contexto', '')
+    resumen = analisis.get('resumen', titulo)
+    lugar = analisis.get('lugar', '')
+    fecha = analisis.get('fecha', '')
+    cifras = analisis.get('cifras', [])
     impacto = analisis.get('impacto', '')
-    angulo = analisis.get('sugerencia_angulo_viral', '')
     
-    # Construir texto para Instagram
-    instagram_text = f"""{emoji} {angulo or analisis.get('resumen_ejecutivo', '')[:60]} {emoji}
+    texto_instagram = f"""{emoji} {titulo[:70]} {emoji}
 
-🔥 {analisis.get('resumen_ejecutivo', '')}
+📌 {resumen}
 
-📊 DATOS CLAVE:
-{chr(10).join([f'• {p}' for p in puntos[:3]]) if puntos else ''}
+{chr(10).join([f'💰 {c}' for c in cifras[:2]]) if cifras else ''}
 
-📍 {datos.get('lugar', '')}
-📅 {datos.get('fecha', '')}
-💰 {datos.get('cifras', [''])[0] if datos.get('cifras') else ''}
-
-{contexto[:200] if contexto else ''}
+📍 {lugar}
+📅 {fecha}
 
 ✨ {impacto[:150] if impacto else ''}
 
 💾 GUARDA este post
 👥 COMPARTE con alguien
 
-{' '.join(analisis.get('hashtags_sugeridos', [f'#{categoria}', '#Construex', '#Noticias', '#Informacion'])[:10])}
+#{categoria.replace(' ', '')} #Construex #Noticias #Informacion
 """
     
-    # Texto para Facebook (más formal)
-    facebook_text = f"""{angulo or analisis.get('resumen_ejecutivo', '')}
+    texto_facebook = f"""{titulo}
 
-{analisis.get('resumen_ejecutivo', '')}
+{resumen}
 
-📌 PUNTOS CLAVE:
-{chr(10).join([f'✅ {p}' for p in puntos[:4]]) if puntos else ''}
-
-{contexto[:300] if contexto else ''}
+{f'📍 {lugar}' if lugar else ''}
+{f'📅 {fecha}' if fecha else ''}
 
 {impacto[:200] if impacto else ''}
 
-{' '.join(analisis.get('hashtags_sugeridos', [f'#{categoria}', '#Construex'])[:5])}
+#{categoria.replace(' ', '')} #Construex
 """
     
-    return {
-        "instagram": instagram_text,
-        "facebook": facebook_text
-    }
-
-
-def clasificar_categoria(titulo, texto):
-    texto_lower = f"{titulo} {texto[:500]}".lower()
-    
-    if any(p in texto_lower for p in ["construc", "centro comercial", "mall", "obra", "edificio", "canal", "arquitect", "construcción"]):
-        return "Construccion", 9
-    elif any(p in texto_lower for p in ["negocio", "emprend", "empresa", "ventas", "inversion", "startup", "empleo", "trabajo"]):
-        return "Emprendimiento", 8
-    elif any(p in texto_lower for p in ["curso", "aprender", "educacion", "certificacion", "estudio", "universidad"]):
-        return "Construex University", 7
-    elif any(p in texto_lower for p in ["salud", "medico", "bienestar", "dieta", "ejercicio", "hospital"]):
-        return "Salud", 7
-    return "Automejora", 6
+    return texto_instagram, texto_facebook
 
 
 @app.route('/')
@@ -239,27 +221,25 @@ def home():
             .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; padding: 30px; margin-bottom: 30px; color: white; text-align: center; }
             .header h1 { font-size: 36px; margin-bottom: 10px; }
             .input-area { background: #1a1a2e; border-radius: 20px; padding: 25px; margin-bottom: 30px; text-align: center; }
-            input { width: 80%; padding: 15px; background: #2a2a3e; border: 1px solid #3a3a4e; border-radius: 12px; color: white; font-size: 16px; }
+            input { width: 70%; padding: 15px; background: #2a2a3e; border: 1px solid #3a3a4e; border-radius: 12px; color: white; font-size: 16px; }
             button { background: linear-gradient(135deg, #FF6B6B, #FF8E53); color: white; padding: 15px 30px; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-left: 10px; }
             button:hover { transform: scale(1.02); }
             .loading { text-align: center; padding: 40px; color: #aaa; display: none; }
             .resultado { display: none; margin-top: 20px; }
             .card { background: #1a1a2e; border-radius: 16px; margin-bottom: 20px; overflow: hidden; }
-            .card-header { background: #2a2a3e; padding: 15px 20px; color: white; font-weight: bold; font-size: 18px; }
+            .card-header { background: #2a2a3e; padding: 15px 20px; color: white; font-weight: bold; }
             .card-body { padding: 20px; }
             textarea { width: 100%; background: #2a2a3e; color: white; border: none; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 13px; resize: vertical; margin-bottom: 10px; }
             .copy-btn { background: #3498db; padding: 8px 16px; border: none; border-radius: 8px; color: white; cursor: pointer; }
             .categoria-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 12px; margin-bottom: 10px; background: #9C27B0; margin-right: 10px; }
             .info-box { background: #2a2a3e; padding: 15px; border-radius: 12px; margin-top: 15px; color: #ddd; font-size: 14px; line-height: 1.5; }
-            .datos-destacados { display: flex; flex-wrap: wrap; gap: 10px; margin: 15px 0; }
-            .dato-chip { background: #2a2a3e; padding: 8px 15px; border-radius: 20px; font-size: 13px; border-left: 3px solid #FFD700; }
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
                 <h1>🏗️ Construex Ecosystem</h1>
-                <p>Analiza noticias y genera contenido viral para redes sociales</p>
+                <p>Analiza noticias y genera contenido para redes sociales</p>
             </div>
             
             <div class="input-area">
@@ -309,42 +289,22 @@ def home():
                         <h3 style="color: white; margin: 15px 0;">${data.titulo}</h3>
                         
                         <div class="info-box">
-                            <strong>📝 RESUMEN EJECUTIVO</strong><br>
-                            ${data.analisis.resumen_ejecutivo || 'No disponible'}
+                            <strong>📝 RESUMEN</strong><br>
+                            ${data.analisis.resumen || 'No disponible'}
                         </div>
                         
-                        <div class="datos-destacados">
-                            ${data.analisis.datos_clave?.fecha ? `<div class="dato-chip">📅 ${data.analisis.datos_clave.fecha}</div>` : ''}
-                            ${data.analisis.datos_clave?.lugar ? `<div class="dato-chip">📍 ${data.analisis.datos_clave.lugar}</div>` : ''}
-                            ${(data.analisis.datos_clave?.cifras || []).map(c => `<div class="dato-chip">💰 ${c}</div>`).join('')}
-                        </div>
-                        
-                        <div class="info-box">
-                            <strong>🎯 CONTEXTO</strong><br>
-                            ${data.analisis.contexto || 'No disponible'}
-                        </div>
-                        
-                        <div class="info-box">
-                            <strong>⚡ IMPACTO POTENCIAL</strong><br>
-                            ${data.analisis.impacto || 'No disponible'}
-                        </div>
-                        
-                        <div class="info-box">
-                            <strong>🔥 PUNTOS CLAVE PARA VIRALIZAR</strong><br>
-                            ${(data.analisis.puntos_clave_para_viralizar || []).map((p, i) => `${i+1}️⃣ ${p}<br>`).join('')}
-                        </div>
-                        
-                        <div class="info-box">
-                            <strong>💡 SUGERENCIA DE ÁNGULO VIRAL</strong><br>
-                            ${data.analisis.sugerencia_angulo_viral || 'No disponible'}
-                        </div>
+                        ${data.analisis.fecha ? `<div class="info-box"><strong>📅 FECHA:</strong><br>${data.analisis.fecha}</div>` : ''}
+                        ${data.analisis.lugar ? `<div class="info-box"><strong>📍 LUGAR:</strong><br>${data.analisis.lugar}</div>` : ''}
+                        ${data.analisis.cifras && data.analisis.cifras.length ? `<div class="info-box"><strong>💰 CIFRAS CLAVE:</strong><br>${data.analisis.cifras.join('<br>')}</div>` : ''}
+                        ${data.analisis.contexto ? `<div class="info-box"><strong>🎯 CONTEXTO:</strong><br>${data.analisis.contexto}</div>` : ''}
+                        ${data.analisis.impacto ? `<div class="info-box"><strong>⚡ IMPACTO:</strong><br>${data.analisis.impacto}</div>` : ''}
                     </div>
                 </div>
                 
                 <div class="card">
                     <div class="card-header">📱 CONTENIDO PARA INSTAGRAM</div>
                     <div class="card-body">
-                        <textarea id="textoInstagram" rows="16" readonly style="width:100%;">${data.texto_instagram}</textarea>
+                        <textarea id="textoInstagram" rows="12" readonly style="width:100%;">${data.texto_instagram}</textarea>
                         <button class="copy-btn" onclick="copiarTexto('textoInstagram')">📋 Copiar para Instagram</button>
                     </div>
                 </div>
@@ -352,7 +312,7 @@ def home():
                 <div class="card">
                     <div class="card-header">📘 CONTENIDO PARA FACEBOOK</div>
                     <div class="card-body">
-                        <textarea id="textoFacebook" rows="10" readonly style="width:100%;">${data.texto_facebook}</textarea>
+                        <textarea id="textoFacebook" rows="8" readonly style="width:100%;">${data.texto_facebook}</textarea>
                         <button class="copy-btn" onclick="copiarTexto('textoFacebook')">📋 Copiar para Facebook</button>
                     </div>
                 </div>
@@ -366,7 +326,7 @@ def home():
             const textarea = document.getElementById(id);
             textarea.select();
             document.execCommand('copy');
-            alert('✅ Texto copiado al portapapeles');
+            alert('✅ Copiado al portapapeles');
         }
         </script>
     </body>
@@ -390,14 +350,13 @@ def analizar():
     # 2. Clasificar categoría
     categoria, viralidad = clasificar_categoria(contenido['titulo'], contenido['texto_completo'])
     
-    # 3. Analizar con Gemini (como periodista)
+    # 3. Analizar con Gemini
     analisis = analizar_noticia_con_gemini(contenido['titulo'], contenido['texto_completo'], url)
     
-    if not analisis:
-        return jsonify({"error": "No se pudo analizar la noticia"}), 500
-    
-    # 4. Generar textos virales
-    textos = generar_texto_viral(analisis, categoria, viralidad)
+    # 4. Generar textos para redes
+    texto_instagram, texto_facebook = generar_texto_redes(
+        contenido['titulo'], analisis, categoria, viralidad
+    )
     
     return jsonify({
         "exito": True,
@@ -405,8 +364,8 @@ def analizar():
         "viralidad": viralidad,
         "titulo": contenido['titulo'],
         "analisis": analisis,
-        "texto_instagram": textos['instagram'],
-        "texto_facebook": textos['facebook']
+        "texto_instagram": texto_instagram,
+        "texto_facebook": texto_facebook
     })
 
 
