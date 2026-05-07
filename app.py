@@ -1,6 +1,6 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - PNG REAL PARA INSTAGRAM
+         CONSTRUEX ECOSYSTEM - VERSIÓN VIRAL
 ======================================================================
 """
 
@@ -11,9 +11,16 @@ from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from dotenv import load_dotenv
+import google.generativeai as genai
 
 load_dotenv()
 app = Flask(__name__)
+
+# Configurar Gemini
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 
 
 def extraer_enlaces(texto):
@@ -29,30 +36,76 @@ def leer_contenido_url(url):
         titulo = soup.find('title').text.strip() if soup.find('title') else "Sin título"
         
         meta_desc = soup.find('meta', attrs={'name': 'description'})
-        descripcion = meta_desc.get('content', '')[:500] if meta_desc else ""
+        descripcion = meta_desc.get('content', '')[:800] if meta_desc else ""
         
         if not descripcion:
             for script in soup(["script", "style"]):
                 script.decompose()
             texto = soup.get_text()
-            descripcion = ' '.join(texto.split())[:500]
+            descripcion = ' '.join(texto.split())[:800]
         
         return {"exito": True, "titulo": titulo, "descripcion": descripcion, "dominio": urlparse(url).netloc}
     except Exception as e:
         return {"exito": False, "error": str(e)}
 
 
+def generar_contenido_viral_con_gemini(titulo, descripcion, categoria):
+    """Genera contenido viral usando Gemini"""
+    
+    prompt = f"""
+    Eres un experto en marketing viral. Crea contenido para Instagram basado en este artículo:
+    
+    TÍTULO: {titulo}
+    CATEGORÍA: {categoria}
+    CONTENIDO: {descripcion[:800]}
+    
+    Genera un formato viral que incluya:
+    
+    1. UN TÍTULO CLICKBAIT (máx 60 caracteres) que haga que la gente quiera leer
+    2. UN DATO SORPRENDENTE (el "hook" que hace que la gente comente)
+    3. 4 PUNTOS CLAVE con emojis (cada punto debe ser valioso y compartible)
+    4. UN CALL TO ACTION VIRAL (frase que invite a guardar/compartir)
+    5. 5 HASHTAGS TENDENCIA relacionados
+    
+    Responde SOLO con JSON en este formato:
+    {{
+        "titulo_viral": "...",
+        "dato_sorprendente": "...",
+        "puntos_clave": ["punto1", "punto2", "punto3", "punto4"],
+        "call_to_action": "...",
+        "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"]
+    }}
+    """
+    
+    try:
+        respuesta = gemini_model.generate_content(prompt)
+        texto = respuesta.text
+        if "```json" in texto:
+            texto = texto.split("```json")[1].split("```")[0]
+        import json
+        return json.loads(texto.strip())
+    except Exception as e:
+        print(f"Error Gemini: {e}")
+        return {
+            "titulo_viral": f"🔥 {titulo[:55]} 🔥",
+            "dato_sorprendente": descripcion[:150],
+            "puntos_clave": [descripcion[i:i+80] for i in range(0, 320, 80)][:4],
+            "call_to_action": "✨ Guarda este post para después y compártelo con alguien que debería saber esto ✨",
+            "hashtags": [f"#{categoria}", "#Construex", "#Educacion", "#Aprende", "#Viral"]
+        }
+
+
 def clasificar_manual(titulo, descripcion, dominio):
     texto = f"{titulo} {descripcion}".lower()
     if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "empleo", "edificio"]):
-        return "Construccion", 8, "#795548"
+        return "Construccion"
     elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas"]):
-        return "Emprendimiento", 7, "#FF9800"
+        return "Emprendimiento"
     elif any(p in texto for p in ["curso", "aprender", "educacion"]):
-        return "Construex University", 6, "#2196F3"
+        return "Construex University"
     elif any(p in texto for p in ["salud", "medico", "bienestar"]):
-        return "Salud", 6, "#4CAF50"
-    return "Automejora", 5, "#9C27B0"
+        return "Salud"
+    return "Automejora"
 
 
 @app.route('/')
@@ -61,83 +114,76 @@ def home():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Construex - Generador de Imágenes para Instagram</title>
+        <title>Construex - Contenido Viral</title>
         <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px; }
-            .container { max-width: 550px; width: 100%; }
-            .card { background: white; border-radius: 20px; padding: 25px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-            h1 { color: #2c3e50; font-size: 24px; margin-bottom: 5px; }
-            .sub { color: #7f8c8d; font-size: 14px; margin-bottom: 20px; }
-            input { width: 100%; padding: 14px; border: 2px solid #e0e0e0; border-radius: 12px; font-size: 14px; margin-bottom: 15px; }
-            button { width: 100%; background: #27ae60; color: white; padding: 14px; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.2s; }
-            button:hover { transform: scale(1.02); background: #219a52; }
-            .loading { text-align: center; padding: 20px; color: #666; display: none; }
+            body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f0f0f; min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px; }
+            .container { max-width: 600px; width: 100%; }
+            .card { background: #1a1a2e; border-radius: 24px; padding: 25px; margin-bottom: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
+            h1 { color: white; font-size: 28px; margin-bottom: 5px; }
+            .sub { color: #aaa; font-size: 14px; margin-bottom: 20px; }
+            input { width: 100%; padding: 14px; background: #2a2a3e; border: 1px solid #3a3a4e; border-radius: 12px; color: white; font-size: 14px; margin-bottom: 15px; }
+            button { width: 100%; background: linear-gradient(135deg, #FF6B6B, #FF8E53); color: white; padding: 14px; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.2s; }
+            button:hover { transform: scale(1.02); }
+            .loading { text-align: center; padding: 30px; color: #aaa; display: none; }
             .preview { margin-top: 20px; display: none; }
-            .preview h3 { margin-bottom: 15px; color: #2c3e50; }
-            .capture-area { background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-            .info-box { background: #e8f4f8; padding: 12px; border-radius: 10px; margin-top: 15px; font-size: 13px; color: #555; }
-            .download-btn { background: #3498db; margin-top: 15px; }
-            .download-btn:hover { background: #2980b9; }
-            .categoria-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-bottom: 10px; }
-            .error { color: red; text-align: center; padding: 15px; display: none; }
+            .carousel { display: flex; overflow-x: auto; gap: 20px; padding: 10px 0; scroll-snap-type: x mandatory; }
+            .slide { scroll-snap-align: start; min-width: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 24px; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.3); }
+            .slide-content { padding: 40px; color: white; }
+            .slide-number { position: absolute; bottom: 20px; right: 25px; background: rgba(0,0,0,0.5); padding: 5px 12px; border-radius: 20px; font-size: 12px; }
+            .titulo-viral { font-size: 32px; font-weight: bold; margin-bottom: 20px; line-height: 1.3; }
+            .dato { background: rgba(0,0,0,0.3); border-radius: 16px; padding: 20px; margin: 20px 0; border-left: 4px solid #FFD700; }
+            .punto { display: flex; align-items: flex-start; gap: 15px; margin-bottom: 20px; }
+            .punto-emoji { font-size: 28px; min-width: 50px; }
+            .punto-texto { font-size: 16px; line-height: 1.4; }
+            .cta { background: #FFD700; color: #1a1a2e; padding: 15px; border-radius: 16px; text-align: center; font-weight: bold; margin: 20px 0; }
+            .hashtags { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+            .hashtag { background: rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 20px; font-size: 12px; }
+            .controls { display: flex; justify-content: space-between; margin-top: 15px; gap: 10px; }
+            .nav-btn { background: #333; padding: 10px; width: auto; font-size: 14px; margin: 0; }
         </style>
     </head>
     <body>
         <div class="container">
             <div class="card">
-                <h1>🏗️ Construex Ecosystem</h1>
-                <div class="sub">Genera imágenes listas para Instagram</div>
+                <h1>🔥 Construex Viral</h1>
+                <div class="sub">Genera contenido viral para Instagram</div>
                 
                 <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo">
-                <button id="generateBtn">🚀 Generar Imagen para Instagram</button>
+                <button id="generateBtn">🚀 Generar Contenido Viral</button>
                 
-                <div class="loading" id="loading">⏳ Analizando contenido y generando imagen...</div>
-                <div class="error" id="error"></div>
+                <div class="loading" id="loading">⏳ Analizando y generando contenido viral...</div>
             </div>
             
             <div class="preview" id="preview">
-                <div class="capture-area" id="captureArea">
-                    <div id="poster" style="width: 1080px; height: 1080px; position: relative; font-family: 'Segoe UI', Arial, sans-serif;">
-                        <!-- El contenido se llena con JS -->
-                    </div>
+                <div id="carousel" class="carousel"></div>
+                <div class="controls">
+                    <button class="nav-btn" id="prevBtn">◀ Anterior</button>
+                    <button class="nav-btn" id="nextBtn">Siguiente ▶</button>
+                    <button class="nav-btn" id="downloadBtn">📥 Descargar Todo</button>
                 </div>
-                <div class="info-box">
-                    💡 La imagen es de 1080x1080, tamaño perfecto para Instagram.
-                    <br>📱 Haz clic en "Descargar PNG" para guardarla en tu dispositivo.
+                <div class="info-box" style="background: #2a2a3e; padding: 12px; border-radius: 12px; margin-top: 15px; color: #aaa; font-size: 12px; text-align: center;">
+                    💡 Múltiples diapositivas para carrusel de Instagram. Descarga cada una como PNG.
                 </div>
-                <button class="download-btn" id="downloadBtn">📥 Descargar Imagen PNG</button>
             </div>
         </div>
 
         <script>
-        const colores = {
-            "Construccion": "#795548",
-            "Emprendimiento": "#FF9800",
-            "Construex University": "#2196F3",
-            "Salud": "#4CAF50",
-            "Automejora": "#9C27B0"
-        };
-        
-        const categoriasIconos = {
-            "Construccion": "🏗️",
-            "Emprendimiento": "🚀",
-            "Construex University": "🎓",
-            "Salud": "💪",
-            "Automejora": "🌟"
-        };
+        let currentSlide = 0;
+        let slides = [];
         
         document.getElementById('generateBtn').addEventListener('click', procesar);
-        document.getElementById('downloadBtn').addEventListener('click', descargarImagen);
+        document.getElementById('prevBtn').addEventListener('click', () => cambiarSlide(-1));
+        document.getElementById('nextBtn').addEventListener('click', () => cambiarSlide(1));
+        document.getElementById('downloadBtn').addEventListener('click', descargarTodo);
         
         async function procesar() {
             const url = document.getElementById('urlInput').value;
-            if (!url) { mostrarError('Ingresa una URL'); return; }
+            if (!url) { alert('Ingresa una URL'); return; }
             
             document.getElementById('loading').style.display = 'block';
             document.getElementById('preview').style.display = 'none';
-            document.getElementById('error').style.display = 'none';
             
             try {
                 const response = await fetch('/procesar', {
@@ -148,10 +194,9 @@ def home():
                 const data = await response.json();
                 
                 if (data.exito) {
-                    generarPoster(data);
+                    generarCarousel(data);
                     document.getElementById('loading').style.display = 'none';
                     document.getElementById('preview').style.display = 'block';
-                    document.getElementById('generateBtn').disabled = false;
                 } else {
                     mostrarError(data.error);
                 }
@@ -160,117 +205,119 @@ def home():
             }
         }
         
-        function generarPoster(data) {
-            const color = colores[data.categoria] || "#3498db";
-            const icono = categoriasIconos[data.categoria] || "📚";
+        function generarCarousel(data) {
+            const colores = {
+                "Construccion": "linear-gradient(135deg, #795548 0%, #3e2723 100%)",
+                "Emprendimiento": "linear-gradient(135deg, #FF9800 0%, #e65100 100%)",
+                "Construex University": "linear-gradient(135deg, #2196F3 0%, #0d47a1 100%)",
+                "Salud": "linear-gradient(135deg, #4CAF50 0%, #1b5e20 100%)",
+                "Automejora": "linear-gradient(135deg, #9C27B0 0%, #4a148c 100%)"
+            };
+            const gradient = colores[data.categoria] || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
             
-            // Limitar texto para que no se desborde
-            let titulo = data.titulo.length > 80 ? data.titulo.substring(0, 77) + '...' : data.titulo;
-            let resumen = data.resumen.length > 300 ? data.resumen.substring(0, 297) + '...' : data.resumen;
+            slides = [
+                // Slide 1 - Portada viral
+                `<div class="slide" style="background: ${gradient}; position: relative;">
+                    <div class="slide-content" style="text-align: center;">
+                        <div style="font-size: 80px; margin-bottom: 30px;">🔥</div>
+                        <div class="titulo-viral">${data.titulo_viral || data.titulo}</div>
+                        <div style="font-size: 18px; opacity: 0.9; margin-top: 30px;">👇 Desliza para descubrir 👇</div>
+                    </div>
+                    <div class="slide-number">1/5</div>
+                </div>`,
+                
+                // Slide 2 - Dato sorprendente
+                `<div class="slide" style="background: ${gradient}; position: relative;">
+                    <div class="slide-content">
+                        <div style="font-size: 24px; margin-bottom: 20px;">💥 DATO IMPACTANTE</div>
+                        <div class="dato" style="background: rgba(0,0,0,0.3);">
+                            <div style="font-size: 20px; font-weight: bold;">"${data.dato_sorprendente}"</div>
+                        </div>
+                        <div style="margin-top: 30px; text-align: center;">🤯 ¿Lo sabías?</div>
+                    </div>
+                    <div class="slide-number">2/5</div>
+                </div>`,
+                
+                // Slide 3 - Puntos clave
+                `<div class="slide" style="background: ${gradient}; position: relative;">
+                    <div class="slide-content">
+                        <div style="font-size: 24px; margin-bottom: 20px;">📌 PUNTOS CLAVE</div>
+                        ${data.puntos_clave.map((p, i) => `
+                            <div class="punto">
+                                <div class="punto-emoji">${["1️⃣","2️⃣","3️⃣","4️⃣"][i] || "📌"}</div>
+                                <div class="punto-texto">${p}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="slide-number">3/5</div>
+                </div>`,
+                
+                // Slide 4 - Call to action
+                `<div class="slide" style="background: ${gradient}; position: relative;">
+                    <div class="slide-content" style="text-align: center;">
+                        <div style="font-size: 60px; margin-bottom: 20px;">✨</div>
+                        <div class="cta" style="background: #FFD700; color: #1a1a2e;">
+                            ${data.call_to_action}
+                        </div>
+                        <div style="margin-top: 30px;">💾 <strong>GUARDA ESTE POST</strong> 💾</div>
+                        <div>👥 <strong>COMPARTE CON ALGUIEN</strong> 👥</div>
+                    </div>
+                    <div class="slide-number">4/5</div>
+                </div>`,
+                
+                // Slide 5 - Hashtags
+                `<div class="slide" style="background: ${gradient}; position: relative;">
+                    <div class="slide-content" style="text-align: center;">
+                        <div style="font-size: 24px; margin-bottom: 30px;">🏷️ SIGUE APRENDIENDO</div>
+                        <div class="hashtags" style="justify-content: center;">
+                            ${data.hashtags.map(h => `<span class="hashtag">${h}</span>`).join('')}
+                        </div>
+                        <div style="margin-top: 40px;">
+                            <div style="font-size: 20px;">🏗️ <strong>Construex</strong></div>
+                            <div style="font-size: 14px; opacity: 0.7;">La mejor educación para profesionales</div>
+                        </div>
+                    </div>
+                    <div class="slide-number">5/5</div>
+                </div>`
+            ];
             
-            const html = `
-                <div style="width: 1080px; height: 1080px; background: linear-gradient(135deg, ${color} 0%, #2c3e50 100%); display: flex; flex-direction: column; justify-content: space-between; padding: 50px; position: relative;">
-                    <!-- Patrón decorativo -->
-                    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; opacity: 0.05;">
-                        <svg width="100%" height="100%">
-                            <defs><pattern id="dots" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse"><circle cx="20" cy="20" r="3" fill="white"/></pattern></defs>
-                            <rect width="100%" height="100%" fill="url(#dots)"/>
-                        </svg>
-                    </div>
-                    
-                    <!-- Marco decorativo -->
-                    <div style="position: absolute; top: 25px; left: 25px; right: 25px; bottom: 25px; border: 2px solid rgba(255,255,255,0.2); border-radius: 20px; pointer-events: none;"></div>
-                    
-                    <!-- Logo -->
-                    <div style="text-align: center; margin-bottom: 20px;">
-                        <div style="background: rgba(255,255,255,0.15); display: inline-block; padding: 10px 25px; border-radius: 50px;">
-                            <span style="color: white; font-size: 28px; font-weight: bold;">🏗️ CONSTRUEX</span>
-                        </div>
-                    </div>
-                    
-                    <!-- Categoría -->
-                    <div style="text-align: center; margin-bottom: 15px;">
-                        <span style="background: rgba(255,255,255,0.2); padding: 8px 20px; border-radius: 30px; color: #FFD700; font-size: 20px; font-weight: bold;">
-                            ${icono} ${data.categoria.toUpperCase()} ${icono}
-                        </span>
-                    </div>
-                    
-                    <!-- Línea decorativa -->
-                    <div style="width: 80px; height: 3px; background: #FFD700; margin: 0 auto 25px auto; border-radius: 2px;"></div>
-                    
-                    <!-- Título -->
-                    <div style="text-align: center; margin-bottom: 25px;">
-                        <div style="color: white; font-size: 42px; font-weight: bold; line-height: 1.3; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
-                            ${titulo}
-                        </div>
-                    </div>
-                    
-                    <!-- Línea decorativa -->
-                    <div style="width: 120px; height: 2px; background: rgba(255,255,255,0.3); margin: 0 auto 25px auto;"></div>
-                    
-                    <!-- Resumen -->
-                    <div style="background: rgba(0,0,0,0.3); border-radius: 20px; padding: 25px; margin-bottom: 25px;">
-                        <div style="color: rgba(255,255,255,0.95); font-size: 24px; line-height: 1.5; text-align: center;">
-                            "${resumen.substring(0, 250)}"
-                        </div>
-                    </div>
-                    
-                    <!-- Call to Action y Hashtags -->
-                    <div style="text-align: center;">
-                        <div style="background: #FFD700; color: #2c3e50; padding: 12px 25px; border-radius: 50px; display: inline-block; font-weight: bold; font-size: 22px; margin-bottom: 15px;">
-                            ✨ APRENDE MÁS EN CONSTRUEX ✨
-                        </div>
-                        <div style="color: rgba(255,255,255,0.7); font-size: 18px; letter-spacing: 1px;">
-                            #${data.categoria.replace(' ', '')} #Construex #Educacion #Aprendizaje
-                        </div>
-                    </div>
-                    
-                    <!-- Footer -->
-                    <div style="text-align: center; margin-top: 20px;">
-                        <div style="color: rgba(255,255,255,0.4); font-size: 14px;">
-                            construex.com | Contenido generado por IA
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            document.getElementById('poster').innerHTML = html;
+            const carousel = document.getElementById('carousel');
+            carousel.innerHTML = slides.join('');
+            currentSlide = 0;
+            actualizarVisibilidad();
         }
         
-        async function descargarImagen() {
-            const element = document.getElementById('poster');
-            const loadingDiv = document.getElementById('loading');
-            loadingDiv.style.display = 'block';
-            loadingDiv.innerHTML = '⏳ Generando imagen PNG...';
+        function cambiarSlide(direccion) {
+            currentSlide += direccion;
+            if (currentSlide < 0) currentSlide = slides.length - 1;
+            if (currentSlide >= slides.length) currentSlide = 0;
+            actualizarVisibilidad();
+        }
+        
+        function actualizarVisibilidad() {
+            const carousel = document.getElementById('carousel');
+            const slideWidth = carousel.querySelector('.slide')?.offsetWidth || 550;
+            carousel.scrollTo({ left: currentSlide * slideWidth, behavior: 'smooth' });
+        }
+        
+        async function descargarTodo() {
+            const carousel = document.getElementById('carousel');
+            const slidesElements = carousel.querySelectorAll('.slide');
             
-            try {
-                const canvas = await html2canvas(element, {
-                    scale: 2,
-                    backgroundColor: null,
-                    logging: false,
-                    useCORS: true
-                });
-                
+            for (let i = 0; i < slidesElements.length; i++) {
+                const canvas = await html2canvas(slidesElements[i], { scale: 2 });
                 const link = document.createElement('a');
-                link.download = `construex_instagram_${Date.now()}.png`;
-                link.href = canvas.toDataURL('image/png');
+                link.download = `construex_slide_${i+1}_${Date.now()}.png`;
+                link.href = canvas.toDataURL();
                 link.click();
-                
-                loadingDiv.style.display = 'none';
-            } catch(e) {
-                loadingDiv.style.display = 'none';
-                mostrarError('Error al generar la imagen: ' + e.message);
+                await new Promise(r => setTimeout(r, 500));
             }
+            alert(`✅ ${slidesElements.length} imágenes descargadas!`);
         }
         
         function mostrarError(msg) {
             document.getElementById('loading').style.display = 'none';
-            document.getElementById('error').style.display = 'block';
-            document.getElementById('error').innerHTML = '❌ ' + msg;
-            document.getElementById('generateBtn').disabled = false;
-            setTimeout(() => {
-                document.getElementById('error').style.display = 'none';
-            }, 5000);
+            alert('❌ ' + msg);
         }
         </script>
     </body>
@@ -294,14 +341,24 @@ def procesar():
     if not contenido['exito']:
         return jsonify({"error": contenido.get('error', 'No se pudo acceder')}), 400
     
-    categoria, viralidad, _ = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
+    categoria = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
+    
+    if GEMINI_API_KEY:
+        contenido_viral = generar_contenido_viral_con_gemini(contenido['titulo'], contenido['descripcion'], categoria)
+    else:
+        contenido_viral = {
+            "titulo_viral": f"🔥 {contenido['titulo'][:55]} 🔥",
+            "dato_sorprendente": contenido['descripcion'][:150],
+            "puntos_clave": [contenido['descripcion'][i:i+80] for i in range(0, 320, 80)][:4],
+            "call_to_action": "✨ Guarda este post y compártelo ✨",
+            "hashtags": [f"#{categoria}", "#Construex", "#Educacion", "#Viral", "#Aprende"]
+        }
     
     return jsonify({
         "exito": True,
         "categoria": categoria,
-        "viralidad": viralidad,
         "titulo": contenido['titulo'],
-        "resumen": contenido['descripcion'][:300]
+        "contenido_viral": contenido_viral
     })
 
 
