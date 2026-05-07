@@ -1,6 +1,6 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN PROFESIONAL COMPLETA
+         CONSTRUEX ECOSYSTEM - VERSIÓN INFOGRAFÍA PROFESIONAL
 ======================================================================
 """
 
@@ -43,41 +43,64 @@ def leer_contenido_url(url):
         
         titulo = soup.find('title').text.strip() if soup.find('title') else "Sin título"
         
+        # Extraer más contenido para mejor análisis
         meta_desc = soup.find('meta', attrs={'name': 'description'})
-        descripcion = meta_desc.get('content', '')[:800] if meta_desc else ""
+        descripcion = meta_desc.get('content', '')[:1500] if meta_desc else ""
         
-        if not descripcion:
-            for script in soup(["script", "style"]):
+        # Extraer texto principal del artículo
+        articulo = soup.find('article') or soup.find('main') or soup.find('body')
+        if articulo:
+            for script in articulo(["script", "style", "nav", "footer", "header"]):
                 script.decompose()
-            texto = soup.get_text()
-            descripcion = ' '.join(texto.split())[:800]
+            texto_completo = articulo.get_text()
+            texto_completo = ' '.join(texto_completo.split())[:2000]
+        else:
+            texto_completo = descripcion
         
-        return {"exito": True, "titulo": titulo, "descripcion": descripcion, "dominio": urlparse(url).netloc}
+        return {
+            "exito": True, 
+            "titulo": titulo, 
+            "descripcion": descripcion, 
+            "texto_completo": texto_completo,
+            "dominio": urlparse(url).netloc
+        }
     except Exception as e:
         return {"exito": False, "error": str(e)}
 
 
-def generar_contenido_profesional_con_gemini(titulo, descripcion, categoria):
-    """Genera contenido profesional usando Gemini"""
+def generar_infografia_con_gemini(titulo, texto_completo, categoria):
+    """Genera una infografía completa usando Gemini"""
     
     prompt = f"""
-    Eres un copywriter experto en marketing de contenidos para Instagram y Facebook.
-    
-    Basado en este artículo, genera contenido profesional y viral:
+    Eres un experto en crear infografías educativas. Basado en el siguiente artículo, crea una infografía detallada.
     
     TÍTULO: {titulo}
     CATEGORÍA: {categoria}
-    CONTENIDO: {descripcion[:800]}
+    CONTENIDO COMPLETO: {texto_completo[:2000]}
     
-    Genera EXACTAMENTE este formato JSON:
+    Genera EXACTAMENTE este formato JSON para crear una infografía profesional:
+    
     {{
-        "titulo_viral": "título corto y llamativo (máx 70 caracteres)",
-        "resumen_ejecutivo": "resumen del artículo en 2-3 líneas que enganche",
-        "palabras_clave": ["palabra1", "palabra2", "palabra3", "palabra4", "palabra5"],
-        "descripcion_instagram": "texto para Instagram (máx 2200 caracteres) con emojis, estructura clara y call to action",
-        "descripcion_facebook": "texto para Facebook (máx 2000 caracteres) más profesional",
-        "hashtags": ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4", "#hashtag5", "#hashtag6", "#hashtag7", "#hashtag8", "#hashtag9", "#hashtag10"],
-        "call_to_action": "frase que invite a comentar, guardar o compartir"
+        "titulo_principal": "Título llamativo de la infografía (máx 60 caracteres)",
+        "introduccion": "Frase de impacto que resuma el tema (1-2 líneas)",
+        
+        "datos_clave": [
+            {{"icono": "📊", "titulo": "Dato 1", "valor": "valor numérico o porcentaje", "descripcion": "explicación breve"}},
+            {{"icono": "📈", "titulo": "Dato 2", "valor": "valor", "descripcion": "explicación"}},
+            {{"icono": "🎯", "titulo": "Dato 3", "valor": "valor", "descripcion": "explicación"}}
+        ],
+        
+        "puntos_clave": [
+            "Punto clave 1 con contexto y detalle (máx 120 caracteres)",
+            "Punto clave 2 con contexto y detalle (máx 120 caracteres)",
+            "Punto clave 3 con contexto y detalle (máx 120 caracteres)",
+            "Punto clave 4 con contexto y detalle (máx 120 caracteres)"
+        ],
+        
+        "tendencia": "Análisis de la tendencia principal del artículo (1-2 líneas)",
+        "aplicacion_practica": "Cómo aplicar este conocimiento en el sector (1-2 líneas)",
+        "fuente": "{fuente}",
+        "fecha": "{fecha_actual}"
     }}
     """
     
@@ -89,64 +112,230 @@ def generar_contenido_profesional_con_gemini(titulo, descripcion, categoria):
         return json.loads(texto.strip())
     except Exception as e:
         print(f"Error Gemini: {e}")
-        return generar_contenido_fallback(titulo, descripcion, categoria)
+        return generar_infografia_fallback(titulo, texto_completo, categoria)
 
 
-def generar_contenido_fallback(titulo, descripcion, categoria):
-    """Contenido de respaldo si Gemini falla"""
-    titulo_corto = titulo[:65] if len(titulo) > 65 else titulo
-    descripcion_corta = descripcion[:300] if len(descripcion) > 300 else descripcion
-    
-    emojis_categoria = {
-        "Construccion": "🏗️",
-        "Emprendimiento": "🚀",
-        "Construex University": "🎓",
-        "Salud": "💪",
-        "Automejora": "🌟"
-    }
-    emoji = emojis_categoria.get(categoria, "📚")
+def generar_infografia_fallback(titulo, texto, categoria):
+    """Infografía de respaldo"""
+    palabras = texto.split()[:50]
+    resumen = ' '.join(palabras)
     
     return {
-        "titulo_viral": f"{emoji} {titulo_corto} {emoji}",
-        "resumen_ejecutivo": descripcion_corta,
-        "palabras_clave": [categoria, "educacion", "aprendizaje", "conocimiento", "tips"],
-        "descripcion_instagram": f"{emoji} {titulo_corto}\n\n{descripcion_corta}\n\n💾 GUARDA este post para después\n👥 COMPARTE con alguien que debería saber esto\n\n{categoria} #Construex #Educacion",
-        "descripcion_facebook": f"{titulo_corto}\n\n{descripcion_corta}\n\n📌 ¿Qué opinas? Déjanos tu comentario.",
-        "hashtags": [f"#{categoria.replace(' ', '')}", "#Construex", "#Educacion", "#Aprende", "#Tips", "#Conocimiento", "#Desarrollo", "#Crecimiento", "#Liderazgo", "#Innovacion"],
-        "call_to_action": "✨ Guarda este post y compártelo con alguien que le pueda interesar ✨"
+        "titulo_principal": titulo[:55],
+        "introduccion": resumen[:150],
+        "datos_clave": [
+            {"icono": "📊", "titulo": "Impacto", "valor": "Significativo", "descripcion": "El tema tiene gran relevancia"},
+            {"icono": "📈", "titulo": "Tendencia", "valor": "En crecimiento", "descripcion": "Cada vez más relevante"},
+            {"icono": "🎯", "titulo": "Clave", "valor": "Prioritario", "descripcion": "Aspecto fundamental"}
+        ],
+        "puntos_clave": [
+            f"✅ {resumen[:100]}",
+            f"📌 Aspecto relevante del artículo",
+            f"💡 Información importante a considerar",
+            f"🔑 Conclusión principal del contenido"
+        ],
+        "tendencia": "Este tema está ganando relevancia en el sector",
+        "aplicacion_practica": f"Aplica este conocimiento en {categoria} para mejores resultados",
+        "fuente": "Análisis Construex",
+        "fecha": time.strftime("%d/%m/%Y")
     }
 
 
-def generar_imagen_perchance(titulo, categoria, palabras_clave):
-    """Genera imagen profesional usando Perchance (gratis, sin tarjeta)"""
+def generar_html_infografia(infografia, categoria):
+    """Genera HTML profesional de la infografía"""
     
-    # Construir prompt rico y específico
-    prompt = f"""Professional social media post image for {categoria} category. Topic: {titulo[:100]}. Keywords: {', '.join(palabras_clave[:3])}. Style: modern, clean, professional, eye-catching, suitable for Instagram and Facebook. High quality, 4K, cinematic lighting, vibrant colors. Include subtle geometric patterns or abstract shapes in the background. Do not include text or watermarks."""
+    colores = {
+        "Construccion": {"principal": "#795548", "secundario": "#5D4037", "texto": "#FFFFFF"},
+        "Emprendimiento": {"principal": "#FF9800", "secundario": "#E65100", "texto": "#FFFFFF"},
+        "Construex University": {"principal": "#2196F3", "secundario": "#0D47A1", "texto": "#FFFFFF"},
+        "Salud": {"principal": "#4CAF50", "secundario": "#1B5E20", "texto": "#FFFFFF"},
+        "Automejora": {"principal": "#9C27B0", "secundario": "#4A148C", "texto": "#FFFFFF"}
+    }
+    color = colores.get(categoria, {"principal": "#667eea", "secundario": "#764ba2", "texto": "#FFFFFF"})
     
-    # Usar Perchance Image Generator (gratis, sin API key)
-    url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}?width=1080&height=1080&nologo=true"
+    timestamp = str(int(time.time()))
+    nombre = re.sub(r'[^\w\s-]', '', infografia['titulo_principal'][:30]).replace(' ', '_')
+    filename = f"infografia_{timestamp}_{nombre}.html"
+    filepath = os.path.join(IMAGENES_DIR, filename)
     
-    try:
-        print(f"   🖼️ Generando imagen profesional...")
-        response = requests.get(url, timeout=60)
+    # Generar HTML de la infografía
+    datos_html = ""
+    for dato in infografia.get('datos_clave', []):
+        datos_html += f"""
+        <div style="text-align: center; padding: 15px; background: rgba(255,255,255,0.1); border-radius: 12px;">
+            <div style="font-size: 36px;">{dato.get('icono', '📊')}</div>
+            <div style="font-size: 24px; font-weight: bold;">{dato.get('titulo', '')}</div>
+            <div style="font-size: 32px; color: #FFD700; margin: 10px 0;">{dato.get('valor', '')}</div>
+            <div style="font-size: 14px; opacity: 0.9;">{dato.get('descripcion', '')}</div>
+        </div>
+        """
+    
+    puntos_html = ""
+    for i, punto in enumerate(infografia.get('puntos_clave', []), 1):
+        puntos_html += f"""
+        <div style="display: flex; align-items: center; margin-bottom: 20px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 10px;">
+            <div style="font-size: 28px; min-width: 50px;">{i}️⃣</div>
+            <div style="font-size: 16px; line-height: 1.4;">{punto}</div>
+        </div>
+        """
+    
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Construex - {infografia['titulo_principal']}</title>
+    <meta charset="UTF-8">
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            background: linear-gradient(135deg, {color['principal']} 0%, {color['secundario']} 100%);
+            font-family: 'Segoe UI', Arial, sans-serif;
+            padding: 40px;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }}
+        .infografia {{
+            max-width: 1080px;
+            width: 100%;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 30px;
+            overflow: hidden;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.2);
+        }}
+        .header {{
+            background: rgba(0,0,0,0.3);
+            padding: 30px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }}
+        .logo {{
+            font-size: 14px;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+            opacity: 0.7;
+        }}
+        .titulo {{
+            font-size: 36px;
+            font-weight: bold;
+            color: white;
+            margin-bottom: 15px;
+        }}
+        .introduccion {{
+            font-size: 18px;
+            color: rgba(255,255,255,0.9);
+            max-width: 80%;
+            margin: 0 auto;
+        }}
+        .contenido {{
+            padding: 40px;
+        }}
+        .datos-grid {{
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 40px;
+        }}
+        .seccion {{
+            margin-bottom: 40px;
+        }}
+        .seccion-titulo {{
+            font-size: 24px;
+            font-weight: bold;
+            color: #FFD700;
+            margin-bottom: 20px;
+            border-left: 4px solid #FFD700;
+            padding-left: 15px;
+        }}
+        .footer {{
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: rgba(255,255,255,0.6);
+        }}
+        .categoria-badge {{
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-bottom: 15px;
+        }}
+        @media (max-width: 768px) {{
+            .datos-grid {{ grid-template-columns: 1fr; }}
+            .titulo {{ font-size: 28px; }}
+            .contenido {{ padding: 20px; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="infografia">
+        <div class="header">
+            <div class="logo">🏗️ CONSTRUEX ECOSYSTEM</div>
+            <div class="categoria-badge">📁 {categoria.upper()}</div>
+            <div class="titulo">{infografia['titulo_principal']}</div>
+            <div class="introduccion">{infografia['introduccion']}</div>
+        </div>
         
-        if response.status_code == 200:
-            timestamp = str(int(time.time()))
-            nombre = re.sub(r'[^\w\s-]', '', titulo[:30]).replace(' ', '_')
-            filename = f"profesional_{timestamp}_{nombre}.png"
-            filepath = os.path.join(IMAGENES_DIR, filename)
+        <div class="contenido">
+            <div class="datos-grid">
+                {datos_html}
+            </div>
             
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
+            <div class="seccion">
+                <div class="seccion-titulo">📌 PUNTOS CLAVE</div>
+                {puntos_html}
+            </div>
             
-            print(f"   ✅ Imagen guardada: {filepath}")
-            return f"/imagenes/{filename}"
-        else:
-            print(f"   ❌ Error: {response.status_code}")
-            return None
-    except Exception as e:
-        print(f"   ❌ Error: {e}")
-        return None
+            <div class="seccion">
+                <div class="seccion-titulo">📈 TENDENCIA</div>
+                <div style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px;">
+                    {infografia.get('tendencia', '')}
+                </div>
+            </div>
+            
+            <div class="seccion">
+                <div class="seccion-titulo">💡 APLICACIÓN PRÁCTICA</div>
+                <div style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px;">
+                    {infografia.get('aplicacion_practica', '')}
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            Fuente: {infografia.get('fuente', 'Construex')} | {infografia.get('fecha', '')}<br>
+            📌 Guarda esta infografía • 👥 Compártela • 💬 Déjanos tu opinión
+        </div>
+    </div>
+</body>
+</html>"""
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(html)
+    
+    return f"/imagenes/{filename}"
+
+
+def generar_imagen_leonardo_web(titulo, categoria):
+    """Genera URL para imagen de calidad profesional (para que el usuario genere en Leonardo.ai web)"""
+    
+    prompts_por_categoria = {
+        "Construccion": f"Professional architectural photography, modern building construction site, {titulo[:80]}, high resolution, 4K, cinematic lighting, realistic, architectural digest style",
+        "Emprendimiento": f"Professional corporate photography, modern office or startup scene, {titulo[:80]}, high resolution, 4K, cinematic lighting, professional, business magazine style",
+        "Construex University": f"Professional educational photography, modern classroom or learning environment, {titulo[:80]}, high resolution, 4K, clean, academic style",
+        "Salud": f"Professional healthcare photography, modern medical or wellness scene, {titulo[:80]}, high resolution, 4K, clean, fresh, professional",
+        "Automejora": f"Professional motivational photography, personal development scene, {titulo[:80]}, high resolution, 4K, inspiring, clean"
+    }
+    
+    prompt = prompts_por_categoria.get(categoria, f"Professional photography of {categoria}, {titulo[:80]}, high resolution, 4K")
+    
+    # Enlace a Leonardo.ai con el prompt pre-cargado
+    leonardo_url = f"https://app.leonardo.ai/image-generation?prompt={requests.utils.quote(prompt)}"
+    
+    return leonardo_url
 
 
 def clasificar_categoria(titulo, descripcion):
@@ -168,48 +357,45 @@ def home():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Construex Pro - Generador Profesional</title>
+        <title>Construex - Generador de Infografías</title>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f0f0f; min-height: 100vh; padding: 20px; }
             .container { max-width: 1200px; margin: 0 auto; }
-            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; padding: 30px; margin-bottom: 30px; color: white; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; padding: 30px; margin-bottom: 30px; color: white; text-align: center; }
             .header h1 { font-size: 36px; margin-bottom: 10px; }
-            .input-area { background: #1a1a2e; border-radius: 20px; padding: 25px; margin-bottom: 30px; }
-            input { width: 100%; padding: 15px; background: #2a2a3e; border: 1px solid #3a3a4e; border-radius: 12px; color: white; font-size: 16px; margin-bottom: 15px; }
-            button { background: linear-gradient(135deg, #FF6B6B, #FF8E53); color: white; padding: 15px 30px; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.2s; }
-            button:hover { transform: scale(1.02); }
+            .input-area { background: #1a1a2e; border-radius: 20px; padding: 25px; margin-bottom: 30px; text-align: center; }
+            input { width: 70%; padding: 15px; background: #2a2a3e; border: 1px solid #3a3a4e; border-radius: 12px; color: white; font-size: 16px; }
+            button { background: linear-gradient(135deg, #FF6B6B, #FF8E53); color: white; padding: 15px 30px; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-left: 10px; }
             .loading { text-align: center; padding: 40px; color: #aaa; display: none; }
             .resultado { display: none; margin-top: 20px; }
-            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-            .card { background: #1a1a2e; border-radius: 16px; overflow: hidden; }
+            .card { background: #1a1a2e; border-radius: 16px; margin-bottom: 20px; overflow: hidden; }
             .card-header { background: #2a2a3e; padding: 15px 20px; color: white; font-weight: bold; }
-            .card-body { padding: 20px; color: #ddd; line-height: 1.6; }
-            .preview-img { width: 100%; border-radius: 12px; margin-top: 10px; }
-            .copy-btn { background: #3498db; padding: 8px 16px; font-size: 14px; margin-top: 10px; cursor: pointer; border: none; border-radius: 8px; color: white; }
-            .hashtag { display: inline-block; background: #2a2a3e; padding: 5px 12px; border-radius: 20px; margin: 5px; font-size: 12px; }
-            .categoria-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 12px; margin-bottom: 10px; }
-            textarea { width: 100%; padding: 12px; background: #2a2a3e; border: 1px solid #3a3a4e; border-radius: 8px; color: white; font-family: monospace; font-size: 13px; resize: vertical; }
+            .card-body { padding: 20px; }
+            iframe { width: 100%; min-height: 600px; border: none; border-radius: 12px; }
+            .btn-copiar { background: #3498db; padding: 8px 16px; border: none; border-radius: 8px; color: white; cursor: pointer; margin-top: 10px; }
+            .leonardo-btn { background: #27ae60; display: inline-block; padding: 12px 24px; border-radius: 12px; color: white; text-decoration: none; margin-top: 15px; }
+            .info-box { background: #2a2a3e; padding: 15px; border-radius: 12px; margin-top: 15px; color: #ddd; font-size: 14px; }
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
-                <h1>🏗️ Construex Pro</h1>
-                <p>Generador profesional de contenido para Instagram y Facebook</p>
+                <h1>🏗️ Construex Infografías</h1>
+                <p>Generador profesional de infografías a partir de cualquier enlace</p>
             </div>
             
             <div class="input-area">
-                <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo">
-                <button onclick="generarContenido()">🚀 Generar Contenido Profesional</button>
-                <div class="loading" id="loading">⏳ Analizando y generando contenido profesional...</div>
+                <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo" style="width: 60%;">
+                <button onclick="generarInfografia()">🚀 Generar Infografía</button>
+                <div class="loading" id="loading">⏳ Analizando artículo y generando infografía profesional...</div>
             </div>
             
             <div id="resultado" class="resultado"></div>
         </div>
         
         <script>
-        async function generarContenido() {
+        async function generarInfografia() {
             const url = document.getElementById('urlInput').value;
             if (!url) { alert('Ingresa una URL'); return; }
             
@@ -237,60 +423,46 @@ def home():
         }
         
         function mostrarResultado(data) {
-            const viral = data.contenido_viral;
-            
             let html = `
-                <div class="grid-2">
-                    <div class="card">
-                        <div class="card-header">🖼️ IMAGEN PARA PUBLICACIÓN</div>
-                        <div class="card-body">
-                            <img src="${data.imagen_url}?t=${Date.now()}" class="preview-img" alt="Imagen generada">
-                            <a href="${data.imagen_url}" download style="display: inline-block; margin-top: 10px; background: #27ae60; color: white; padding: 8px 16px; border-radius: 8px; text-decoration: none;">📥 Descargar Imagen</a>
-                        </div>
-                    </div>
-                    
-                    <div class="card">
-                        <div class="card-header">📋 INFORMACIÓN DEL ARTÍCULO</div>
-                        <div class="card-body">
-                            <span class="categoria-badge" style="background: #9C27B0;">📁 ${data.categoria}</span>
-                            <span class="categoria-badge" style="background: #e67e22;">🔥 Viralidad: ${data.viralidad}/10</span>
-                            <h3 style="margin: 15px 0; color: white;">${viral.titulo_viral}</h3>
-                            <p><strong>📝 Resumen Ejecutivo:</strong></p>
-                            <p>${viral.resumen_ejecutivo}</p>
-                            <p><strong>🔑 Palabras Clave:</strong></p>
-                            <div>${viral.palabras_clave.map(k => `<span class="hashtag">${k}</span>`).join('')}</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card" style="margin-top: 20px;">
-                    <div class="card-header">📱 TEXTO PARA INSTAGRAM</div>
+                <div class="card">
+                    <div class="card-header">📊 INFOGRAFÍA GENERADA</div>
                     <div class="card-body">
-                        <textarea id="textoInstagram" rows="8" readonly style="width:100%;">${viral.descripcion_instagram}</textarea>
-                        <button class="copy-btn" onclick="copiarTexto('textoInstagram')">📋 Copiar texto de Instagram</button>
+                        <iframe src="${data.infografia_url}"></iframe>
+                        <div style="margin-top: 15px;">
+                            <button class="btn-copiar" onclick="window.open('${data.infografia_url}', '_blank')">📤 Abrir Infografía</button>
+                            <button class="btn-copiar" onclick="window.location.href='${data.infografia_url}'">💾 Descargar HTML</button>
+                        </div>
                     </div>
                 </div>
                 
-                <div class="card" style="margin-top: 20px;">
+                <div class="card">
+                    <div class="card-header">🎨 GENERAR IMAGEN PROFESIONAL (Leonardo.ai)</div>
+                    <div class="card-body">
+                        <p style="color: #ddd; margin-bottom: 15px;">Para una imagen de calidad profesional, haz clic en el enlace y genera la imagen con esta IA:</p>
+                        <a href="${data.leonardo_url}" target="_blank" class="leonardo-btn">🎨 Abrir Leonardo.ai con el prompt listo</a>
+                        <div class="info-box">
+                            💡 <strong>Instrucciones:</strong>
+                            <br>1. Al abrir Leonardo.ai, el prompt ya está precargado
+                            <br>2. Haz clic en "Generate" para crear tu imagen profesional
+                            <br>3. Descarga la imagen y úsala junto con la infografía
+                            <br>4. Leonardo.ai tiene créditos gratis diarios
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">📱 TEXTO LISTO PARA INSTAGRAM</div>
+                    <div class="card-body">
+                        <textarea id="textoInstagram" rows="10" readonly style="width:100%; background:#2a2a3e; color:white; border:none; padding:12px; border-radius:8px;">${data.texto_instagram}</textarea>
+                        <button class="btn-copiar" onclick="copiarTexto('textoInstagram')">📋 Copiar para Instagram</button>
+                    </div>
+                </div>
+                
+                <div class="card">
                     <div class="card-header">📘 TEXTO PARA FACEBOOK</div>
                     <div class="card-body">
-                        <textarea id="textoFacebook" rows="6" readonly style="width:100%;">${viral.descripcion_facebook}</textarea>
-                        <button class="copy-btn" onclick="copiarTexto('textoFacebook')">📋 Copiar texto de Facebook</button>
-                    </div>
-                </div>
-                
-                <div class="card" style="margin-top: 20px;">
-                    <div class="card-header">🏷️ HASHTAGS</div>
-                    <div class="card-body">
-                        <textarea id="hashtags" rows="3" readonly style="width:100%;">${viral.hashtags.join(' ')}</textarea>
-                        <button class="copy-btn" onclick="copiarTexto('hashtags')">📋 Copiar Hashtags</button>
-                    </div>
-                </div>
-                
-                <div class="card" style="margin-top: 20px; background: linear-gradient(135deg, #FFD700, #FF8C00);">
-                    <div class="card-header" style="background: rgba(0,0,0,0.2);">💡 CALL TO ACTION</div>
-                    <div class="card-body">
-                        <p style="font-size: 18px; font-weight: bold;">${viral.call_to_action}</p>
+                        <textarea id="textoFacebook" rows="8" readonly style="width:100%; background:#2a2a3e; color:white; border:none; padding:12px; border-radius:8px;">${data.texto_facebook}</textarea>
+                        <button class="btn-copiar" onclick="copiarTexto('textoFacebook')">📋 Copiar para Facebook</button>
                     </div>
                 </div>
             `;
@@ -329,24 +501,59 @@ def generar():
     
     categoria = clasificar_categoria(contenido['titulo'], contenido['descripcion'])
     
-    viralidad = {"Construccion": 8, "Emprendimiento": 7, "Construex University": 6, "Salud": 6, "Automejora": 5}.get(categoria, 5)
+    # Generar infografía con Gemini
+    infografia = generar_infografia_con_gemini(
+        contenido['titulo'], 
+        contenido.get('texto_completo', contenido['descripcion']), 
+        categoria
+    )
     
-    # Generar contenido profesional con Gemini
-    if GEMINI_API_KEY:
-        contenido_viral = generar_contenido_profesional_con_gemini(contenido['titulo'], contenido['descripcion'], categoria)
-    else:
-        contenido_viral = generar_contenido_fallback(contenido['titulo'], contenido['descripcion'], categoria)
+    # Generar HTML de la infografía
+    infografia_url = generar_html_infografia(infografia, categoria)
     
-    # Generar imagen profesional
-    imagen_url = generar_imagen_perchance(contenido['titulo'], categoria, contenido_viral['palabras_clave'])
+    # Generar texto para redes sociales
+    texto_instagram = f"""🔥 {infografia.get('titulo_principal', '')} 🔥
+
+📌 {infografia.get('introduccion', '')}
+
+📊 DATOS CLAVE:
+{chr(10).join([f"{d.get('icono', '•')} {d.get('titulo', '')}: {d.get('valor', '')}" for d in infografia.get('datos_clave', [])])}
+
+✨ {infografia.get('tendencia', '')}
+
+💡 {infografia.get('aplicacion_practica', '')}
+
+💾 GUARDA esta infografía
+👥 COMPARTE con alguien
+
+#{categoria} #Construex #Infografia #Educacion #Aprende
+"""
+    
+    texto_facebook = f"""{infografia.get('titulo_principal', '')}
+
+{infografia.get('introduccion', '')}
+
+Datos clave:
+{chr(10).join([f"• {d.get('titulo', '')}: {d.get('valor', '')}" for d in infografia.get('datos_clave', [])])}
+
+{infografia.get('tendencia', '')}
+
+{infografia.get('aplicacion_practica', '')}
+
+Fuente: {infografia.get('fuente', 'Construex')}
+#{categoria} #Construex
+"""
+    
+    # Generar enlace para Leonardo.ai
+    leonardo_url = generar_imagen_leonardo_web(contenido['titulo'], categoria)
     
     return jsonify({
         "exito": True,
         "categoria": categoria,
-        "viralidad": viralidad,
-        "titulo": contenido['titulo'],
-        "imagen_url": imagen_url,
-        "contenido_viral": contenido_viral
+        "infografia_url": infografia_url,
+        "leonardo_url": leonardo_url,
+        "texto_instagram": texto_instagram,
+        "texto_facebook": texto_facebook
     })
 
 
