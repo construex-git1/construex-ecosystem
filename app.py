@@ -1,9 +1,3 @@
-"""
-======================================================================
-         CONSTRUEX ECOSYSTEM - IMÁGENES LISTAS PARA INSTAGRAM
-======================================================================
-"""
-
 import os
 import re
 import requests
@@ -12,8 +6,6 @@ from flask import Flask, request, jsonify, send_from_directory
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from dotenv import load_dotenv
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
-import textwrap
 
 load_dotenv()
 app = Flask(__name__)
@@ -51,91 +43,139 @@ def leer_contenido_url(url):
 def clasificar_manual(titulo, descripcion, dominio):
     texto = f"{titulo} {descripcion}".lower()
     if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "empleo", "edificio", "canal"]):
-        return "Construccion", 8, "#795548"
+        return "Construccion", 8
     elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas", "inversion"]):
-        return "Emprendimiento", 7, "#FF9800"
+        return "Emprendimiento", 7
     elif any(p in texto for p in ["curso", "aprender", "educacion", "certificacion"]):
-        return "Construex University", 6, "#2196F3"
+        return "Construex University", 6
     elif any(p in texto for p in ["salud", "medico", "bienestar", "dieta"]):
-        return "Salud", 6, "#4CAF50"
-    return "Automejora", 5, "#9C27B0"
+        return "Salud", 6
+    return "Automejora", 5
 
 
-def generar_imagen_posteable(titulo, resumen, categoria, categoria_color):
-    """
-    Genera una imagen profesional para Instagram con texto superpuesto
-    """
-    # Dimensiones para Instagram (cuadrado)
-    WIDTH, HEIGHT = 1080, 1080
+def generar_html_instagram(titulo, resumen, categoria, enlace):
+    """Genera un HTML que simula una imagen de Instagram (funciona sin Pillow)"""
     
-    # Crear imagen de fondo con degradado
-    img = Image.new('RGB', (WIDTH, HEIGHT), color=categoria_color)
+    colores = {
+        "Construccion": "#795548",
+        "Emprendimiento": "#FF9800", 
+        "Construex University": "#2196F3",
+        "Salud": "#4CAF50",
+        "Automejora": "#9C27B0"
+    }
+    color = colores.get(categoria, "#3498db")
     
-    # Añadir efecto de gradiente (más profesional)
-    for i in range(HEIGHT):
-        alpha = int(255 * (1 - i / HEIGHT))
-        overlay = Image.new('RGBA', (WIDTH, HEIGHT), (0, 0, 0, alpha // 4))
-        img = img.convert('RGBA')
-        img = Image.alpha_composite(img, overlay)
-    
-    draw = ImageDraw.Draw(img)
-    
-    # Intentar cargar fuentes (si no existen, usar la predeterminada)
-    try:
-        font_title = ImageFont.truetype("arial.ttf", 60)
-        font_subtitle = ImageFont.truetype("arial.ttf", 40)
-        font_body = ImageFont.truetype("arial.ttf", 30)
-        font_footer = ImageFont.truetype("arial.ttf", 25)
-    except:
-        font_title = ImageFont.load_default()
-        font_subtitle = ImageFont.load_default()
-        font_body = ImageFont.load_default()
-        font_footer = ImageFont.load_default()
-    
-    # 1. Categoría (arriba)
-    categoria_text = f"🏗️ {categoria.upper()}"
-    bbox = draw.textbbox((0, 0), categoria_text, font=font_subtitle)
-    w = bbox[2] - bbox[0]
-    draw.text(((WIDTH - w) // 2, 80), categoria_text, fill=(255, 255, 255), font=font_subtitle)
-    
-    # 2. Título principal (wrap)
-    titulo_lines = textwrap.wrap(titulo, width=35)
-    y_offset = 200
-    for line in titulo_lines[:3]:  # Máximo 3 líneas
-        bbox = draw.textbbox((0, 0), line, font=font_title)
-        w = bbox[2] - bbox[0]
-        draw.text(((WIDTH - w) // 2, y_offset), line, fill=(255, 255, 255), font=font_title)
-        y_offset += 80
-    
-    # 3. Resumen
-    resumen_lines = textwrap.wrap(resumen, width=45)
-    y_offset = 500
-    for line in resumen_lines[:6]:  # Máximo 6 líneas
-        bbox = draw.textbbox((0, 0), line, font=font_body)
-        w = bbox[2] - bbox[0]
-        draw.text(((WIDTH - w) // 2, y_offset), line, fill=(255, 255, 240), font=font_body)
-        y_offset += 45
-    
-    # 4. Call to Action (abajo)
-    cta_text = f"✨ Aprende más en Construex ✨"
-    bbox = draw.textbbox((0, 0), cta_text, font=font_footer)
-    w = bbox[2] - bbox[0]
-    draw.text(((WIDTH - w) // 2, HEIGHT - 100), cta_text, fill=(255, 215, 0), font=font_footer)
-    
-    # 5. Hashtags sugeridos
-    hashtags = f"#{categoria.replace(' ', '')} #Construex #Educacion #Aprendizaje"
-    bbox = draw.textbbox((0, 0), hashtags, font=font_footer)
-    w = bbox[2] - bbox[0]
-    draw.text(((WIDTH - w) // 2, HEIGHT - 50), hashtags, fill=(200, 200, 200), font=font_footer)
-    
-    # Guardar imagen
     timestamp = str(int(time.time()))
     nombre = re.sub(r'[^\w\s-]', '', titulo[:30]).replace(' ', '_')
-    filename = f"instagram_{timestamp}_{nombre}.png"
+    filename = f"instagram_{timestamp}_{nombre}.html"
     filepath = os.path.join(IMAGENES_DIR, filename)
     
-    img.save(filepath, "PNG")
-    print(f"   ✅ Imagen para Instagram guardada: {filepath}")
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Construex - {categoria}</title>
+    <style>
+        body {{
+            margin: 0;
+            padding: 0;
+            background: {color};
+            font-family: 'Segoe UI', Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }}
+        .card {{
+            width: 500px;
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            margin: 20px;
+        }}
+        .header {{
+            background: {color};
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }}
+        .header h1 {{
+            margin: 0;
+            font-size: 14px;
+            letter-spacing: 2px;
+        }}
+        .content {{
+            padding: 30px;
+        }}
+        .categoria {{
+            background: {color};
+            color: white;
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-bottom: 15px;
+        }}
+        .titulo {{
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            line-height: 1.3;
+        }}
+        .resumen {{
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 25px;
+        }}
+        .cta {{
+            background: {color};
+            color: white;
+            text-align: center;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }}
+        .hashtags {{
+            color: #999;
+            font-size: 12px;
+            text-align: center;
+        }}
+        .footer {{
+            background: #f8f9fa;
+            padding: 15px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            border-top: 1px solid #eee;
+        }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <h1>🏗️ CONSTRUEX ECOSYSTEM</h1>
+        </div>
+        <div class="content">
+            <div class="categoria">📁 {categoria.upper()}</div>
+            <div class="titulo">{titulo[:80]}</div>
+            <div class="resumen">{resumen[:400]}...</div>
+            <div class="cta">
+                ✨ Aprende más en Construex ✨
+            </div>
+            <div class="hashtags">
+                #{categoria.replace(' ', '')} #Construex #Educacion #Aprendizaje
+            </div>
+        </div>
+        <div class="footer">
+            👉 Comparte este contenido | Fuente: {enlace[:50]}...
+        </div>
+    </div>
+</body>
+</html>"""
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(html)
+    
     return f"/imagenes/{filename}"
 
 
@@ -145,26 +185,25 @@ def home():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Construex - Generador de Imágenes para Instagram</title>
+        <title>Construex Ecosystem</title>
         <style>
             body { font-family: Arial; margin: 40px; background: #f0f2f5; text-align: center; }
             .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 15px; }
             input { width: 80%; padding: 12px; margin: 10px; border: 1px solid #ddd; border-radius: 5px; }
             button { background: #27ae60; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
             .resultado { margin-top: 20px; padding: 15px; background: #e8f4f8; border-radius: 10px; text-align: left; display: none; }
-            img { max-width: 100%; margin-top: 10px; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
-            .clasificacion { background: #d4edda; padding: 10px; border-radius: 5px; margin-bottom: 15px; }
             .preview { margin-top: 15px; text-align: center; }
+            iframe { width: 100%; height: 600px; border: none; border-radius: 10px; }
         </style>
     </head>
     <body>
         <div class="container">
             <h1>🏗️ Construex Ecosystem</h1>
-            <p>Genera imágenes listas para Instagram desde cualquier enlace</p>
+            <p>Genera contenido listo para Instagram desde cualquier enlace</p>
             
             <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo">
             <br>
-            <button onclick="procesar()">🚀 Generar Imagen para Instagram</button>
+            <button onclick="procesar()">🚀 Generar Contenido</button>
             <div id="resultado" class="resultado"></div>
         </div>
         <script>
@@ -174,7 +213,7 @@ def home():
                 
                 const resultadoDiv = document.getElementById('resultado');
                 resultadoDiv.style.display = 'block';
-                resultadoDiv.innerHTML = '<div>⏳ Procesando enlace y generando imagen...</div>';
+                resultadoDiv.innerHTML = '<div>⏳ Procesando...</div>';
                 
                 try {
                     const response = await fetch('/procesar', {
@@ -185,16 +224,17 @@ def home():
                     const data = await response.json();
                     
                     if (data.exito) {
-                        let html = `<div class="clasificacion">`;
+                        let html = `<div style="background:#d4edda; padding:10px; border-radius:5px; margin-bottom:15px;">`;
                         html += `<strong>📁 Categoría:</strong> ${data.categoria}<br>`;
                         html += `<strong>🔥 Viralidad:</strong> ${data.viralidad}/10<br>`;
-                        html += `<strong>📝 Título:</strong> ${data.titulo || 'No disponible'}</div>`;
+                        html += `<strong>📝 Título:</strong> ${data.titulo}</div>`;
                         
-                        if (data.imagen_url) {
+                        if (data.html_url) {
                             html += `<div class="preview">`;
-                            html += `<strong>🖼️ Imagen lista para Instagram:</strong><br>`;
-                            html += `<img src="${data.imagen_url}" alt="Imagen para Instagram">`;
-                            html += `<br><a href="${data.imagen_url}" download style="display: inline-block; margin-top: 10px; background: #3498db; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none;">📥 Descargar Imagen</a>`;
+                            html += `<strong>🖼️ Contenido listo para Instagram:</strong><br>`;
+                            html += `<iframe src="${data.html_url}"></iframe>`;
+                            html += `<br><a href="${data.html_url}" target="_blank" style="display: inline-block; margin-top: 10px; background: #3498db; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none;">📥 Ver/Guardar</a>`;
+                            html += `<p style="font-size:12px; color:#666; margin-top:10px;">💡 Toma una captura de pantalla para publicar en Instagram</p>`;
                             html += `</div>`;
                         }
                         
@@ -204,7 +244,7 @@ def home():
                         resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error}`;
                     }
                 } catch(e) {
-                    resultadoDiv.innerHTML = `<strong>❌ Error:</font> ${e.message}`;
+                    resultadoDiv.innerHTML = `<strong>❌ Error:</code> ${e.message}</div>`;
                 }
             }
         </script>
@@ -229,20 +269,16 @@ def procesar():
     if not contenido['exito']:
         return jsonify({"error": contenido.get('error', 'No se pudo acceder')}), 400
     
-    categoria, viralidad, color = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
+    categoria, viralidad = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
     
-    # Generar resumen más atractivo para Instagram
-    resumen = contenido['descripcion'][:300]
-    
-    imagen_url = generar_imagen_posteable(contenido['titulo'], resumen, categoria, color)
+    html_url = generar_html_instagram(contenido['titulo'], contenido['descripcion'], categoria, enlaces[0])
     
     return jsonify({
         "exito": True,
         "categoria": categoria,
         "viralidad": viralidad,
         "titulo": contenido['titulo'],
-        "resumen": resumen,
-        "imagen_url": imagen_url
+        "html_url": html_url
     })
 
 
