@@ -1,6 +1,6 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - EXTRACCIÓN AUTOMÁTICA PROFESIONAL
+         CONSTRUEX ECOSYSTEM - LECTURA Y COMPRENSIÓN COMPLETA
 ======================================================================
 """
 
@@ -9,13 +9,10 @@ import re
 import requests
 import json
 import time
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from dotenv import load_dotenv
-import io
-import PyPDF2
-from readability import Readability
 import google.generativeai as genai
 
 load_dotenv()
@@ -28,7 +25,7 @@ app = Flask(__name__)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+    gemini_model = genai.GenerativeModel('gemini-1.5-pro')  # Modelo con 1M de contexto
 
 IMAGENES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "imagenes_generadas")
 os.makedirs(IMAGENES_DIR, exist_ok=True)
@@ -39,234 +36,121 @@ def extraer_enlaces(texto):
     return re.findall(patron_url, texto)
 
 
-def extraer_contenido_con_gemini(url):
-    """
-    Usa la función nativa de Gemini para leer URLs
-    Ventajas: supera Cloudflare, extrae contenido principal automáticamente
-    """
-    if not GEMINI_API_KEY:
-        return None
-    
-    try:
-        # Usar URL Context de Gemini [citation:5][citation:10]
-        prompt = f"""
-        Analiza el contenido de esta URL y extrae:
-        1. Título principal
-        2. Texto completo del artículo (sin HTML, sin código)
-        3. Resumen ejecutivo (2-3 líneas)
-        4. Puntos clave (3-5 puntos)
-        5. Fecha de publicación si está disponible
-        6. Autor si está disponible
-        
-        URL: {url}
-        
-        Devuelve SOLO JSON en este formato:
-        {{
-            "titulo": "...",
-            "texto_completo": "...",
-            "resumen": "...",
-            "puntos_clave": ["punto1", "punto2", "punto3"],
-            "fecha_publicacion": "...",
-            "autor": "...",
-            "exito": true
-        }}
-        """
-        
-        response = gemini_model.generate_content(prompt)
-        texto = response.text
-        
-        if "```json" in texto:
-            texto = texto.split("```json")[1].split("```")[0]
-        
-        resultado = json.loads(texto.strip())
-        return resultado
-        
-    except Exception as e:
-        print(f"Error con Gemini URL Context: {e}")
-        return None
-
-
-def extraer_contenido_con_readability(url):
-    """
-    Extrae contenido usando readability (versátil, no requiere Gemini)
-    """
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        response = requests.get(url, timeout=15, headers=headers)
-        response.raise_for_status()
-        
-        # Usar readability para extraer contenido principal [citation:4][citation:9]
-        doc = Readability(response.text, url=url)
-        article, _ = doc.parse()
-        
-        if article and article.text_content and len(article.text_content) > 200:
-            # Extraer metadatos básicos
-            soup = BeautifulSoup(response.text, 'html.parser')
-            titulo = article.title or soup.find('title').text.strip() if soup.find('title') else "Sin título"
-            
-            # Extraer fecha
-            fecha = ""
-            for tag in soup.find_all(['time', 'meta']):
-                if tag.get('datetime'):
-                    fecha = tag.get('datetime')
-                    break
-                elif tag.get('content') and 'date' in str(tag.get('property', '')):
-                    fecha = tag.get('content')
-                    break
-            
-            # Extraer autor
-            autor = ""
-            for tag in soup.find_all(['meta', 'span', 'div', 'a']):
-                if 'author' in str(tag.get('class', [])).lower() or tag.get('rel') == ['author']:
-                    autor = tag.text.strip()
-                    break
-            
-            return {
-                "exito": True,
-                "titulo": titulo,
-                "texto_completo": article.text_content[:5000],
-                "resumen": article.excerpt or article.text_content[:300],
-                "puntos_clave": [],
-                "fecha_publicacion": fecha,
-                "autor": autor
-            }
-        else:
-            return None
-            
-    except Exception as e:
-        print(f"Error con readability: {e}")
-        return None
-
-
-def extraer_contenido_pdf(url):
-    """Extrae texto de un PDF desde URL sin descargarlo"""
-    try:
-        response = requests.get(url, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
-        response.raise_for_status()
-        
-        pdf_file = io.BytesIO(response.content)
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
-        
-        texto_completo = ""
-        for page in pdf_reader.pages[:20]:  # Máximo 20 páginas
-            texto_completo += page.extract_text()
-        
-        if texto_completo:
-            # Intentar extraer título del PDF
-            titulo = texto_completo.split('\n')[0][:100] if texto_completo else "Documento PDF"
-            
-            return {
-                "exito": True,
-                "titulo": titulo,
-                "texto_completo": texto_completo[:5000],
-                "resumen": texto_completo[:300],
-                "puntos_clave": [],
-                "fecha_publicacion": "",
-                "autor": "",
-                "es_pdf": True
-            }
-    except Exception as e:
-        print(f"Error leyendo PDF: {e}")
-    
-    return None
-
-
-def extraer_contenido_manual(url):
-    """
-    Extracción manual avanzada como último recurso
-    """
+def leer_contenido_completo_url(url):
+    """Extrae TODO el texto de la URL sin límites de tamaño"""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'es-ES,es;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br'
+            'Accept-Language': 'es-ES,es;q=0.9'
         }
-        
-        response = requests.get(url, timeout=15, headers=headers)
+        response = requests.get(url, timeout=20, headers=headers)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
         
         # Eliminar elementos no deseados
-        for element in soup(["script", "style", "nav", "footer", "header", "aside", "iframe"]):
+        for element in soup(["script", "style", "nav", "footer", "header", "aside", "iframe", "form"]):
             element.decompose()
         
-        # Extraer título
-        titulo = soup.find('title').text.strip() if soup.find('title') else "Sin título"
+        # Buscar contenido principal por selectores comunes
+        contenido_principal = None
         
-        # Extraer texto completo
-        texto_completo = soup.get_text()
-        texto_completo = ' '.join(texto_completo.split())
+        # Intentar encontrar el artículo
+        for selector in ['article', 'main', '.post-content', '.article-content', '.entry-content', '#content', '.content']:
+            elemento = soup.select_one(selector)
+            if elemento:
+                contenido_principal = elemento
+                break
+        
+        if contenido_principal:
+            texto = contenido_principal.get_text()
+        else:
+            texto = soup.get_text()
+        
+        # Limpiar texto
+        texto = ' '.join(texto.split())
         
         # Extraer metadatos
-        meta_desc = soup.find('meta', attrs={'name': 'description'})
-        descripcion = meta_desc.get('content', '')[:500] if meta_desc else ""
+        titulo = soup.find('title').text.strip() if soup.find('title') else "Sin título"
+        
+        # Extraer fecha
+        fecha = ""
+        selectores_fecha = ['time', '[datetime]', '.date', '.published', '.post-date', 'meta[property="article:published_time"]']
+        for selector in selectores_fecha:
+            elemento = soup.select_one(selector)
+            if elemento:
+                if selector.startswith('meta'):
+                    fecha = elemento.get('content', '')
+                else:
+                    fecha = elemento.text.strip()
+                if fecha:
+                    break
         
         return {
             "exito": True,
             "titulo": titulo,
-            "texto_completo": texto_completo[:5000],
-            "resumen": descripcion or texto_completo[:300],
-            "puntos_clave": [],
-            "fecha_publicacion": "",
-            "autor": ""
+            "texto_completo": texto[:15000],  # 15k caracteres es suficiente para noticias
+            "fecha_publicacion": fecha,
+            "url": url,
+            "dominio": urlparse(url).netloc
         }
         
     except Exception as e:
         return {"exito": False, "error": str(e)}
 
 
-def extraer_contenido_inteligente(url):
+def analizar_noticia_con_gemini(titulo, texto_completo, url):
+    """Usa Gemini para analizar la noticia como un periodista humano"""
+    
+    prompt = f"""
+    Eres un periodista experto y analista de tendencias. Analiza la siguiente noticia y extrae información clave como lo haría un humano que lee el artículo completo.
+    
+    TÍTULO: {titulo}
+    URL: {url}
+    
+    TEXTO COMPLETO DE LA NOTICIA:
+    {texto_completo[:12000]}
+    
+    Por favor, responde con un JSON EXACTAMENTE con esta estructura:
+    
+    {{
+        "resumen_ejecutivo": "Resumen de 3-4 líneas explicando DE QUÉ TRATA la noticia (qué pasó, cuándo, dónde, quiénes están involucrados)",
+        "datos_clave": {{
+            "fecha": "Fecha clave del evento si aparece en la noticia",
+            "lugar": "Lugar donde ocurre el evento",
+            "protagonistas": ["persona1", "persona2"],
+            "cifras": ["cifra1", "cifra2"],
+            "plazos": ["fecha límite o plazo importante"]
+        }},
+        "contexto": "Explicación del contexto: por qué es importante esta noticia ahora",
+        "impacto": "Impacto potencial en el sector o la sociedad",
+        "puntos_clave_para_viralizar": [
+            "dato sorprendente 1",
+            "dato sorprendente 2", 
+            "frase impactante 3",
+            "conclusión relevante 4"
+        ],
+        "sugerencia_angulo_viral": "Un ángulo específico para hacer viral esta noticia (ej: 'Las 3 cosas que no sabías sobre...', 'El dato que cambiará tu forma de ver...')",
+        "hashtags_sugeridos": ["#Hashtag1", "#Hashtag2", "#Hashtag3", "#Hashtag4", "#Hashtag5"]
+    }}
+    
+    IMPORTANTE: No inventes información. Si algo no aparece en el texto, déjalo vacío.
+    Los puntos clave para viralizar deben ser DATOS REALES y SORPRENDENTES de la noticia.
     """
-    Orquesta múltiples métodos de extracción en orden de prioridad
-    """
-    # 1. Si es PDF, usar método específico
-    if url.lower().endswith('.pdf'):
-        resultado = extraer_contenido_pdf(url)
-        if resultado and resultado.get('exito'):
-            return resultado
     
-    # 2. Intentar con Gemini URL Context (más potente) [citation:5]
-    if GEMINI_API_KEY:
-        resultado = extraer_contenido_con_gemini(url)
-        if resultado and resultado.get('exito') and len(resultado.get('texto_completo', '')) > 200:
-            print("   ✅ Extraído con Gemini URL Context")
-            return resultado
-    
-    # 3. Intentar con readability
-    resultado = extraer_contenido_con_readability(url)
-    if resultado and resultado.get('exito'):
-        print("   ✅ Extraído con readability")
-        return resultado
-    
-    # 4. Fallback manual
-    resultado = extraer_contenido_manual(url)
-    if resultado and resultado.get('exito'):
-        print("   ✅ Extraído con método manual")
-        return resultado
-    
-    return {"exito": False, "error": "No se pudo extraer el contenido"}
+    try:
+        respuesta = gemini_model.generate_content(prompt)
+        texto = respuesta.text
+        if "```json" in texto:
+            texto = texto.split("```json")[1].split("```")[0]
+        return json.loads(texto.strip())
+    except Exception as e:
+        print(f"Error en análisis Gemini: {e}")
+        return None
 
 
-def clasificar_categoria(titulo, texto_completo):
-    texto = f"{titulo} {texto_completo[:500]}".lower()
-    
-    if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "edificio", "canal", "arquitect"]):
-        return "Construccion", 8
-    elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas", "inversion", "startup"]):
-        return "Emprendimiento", 7
-    elif any(p in texto for p in ["curso", "aprender", "educacion", "certificacion", "estudio"]):
-        return "Construex University", 6
-    elif any(p in texto for p in ["salud", "medico", "bienestar", "dieta", "ejercicio", "hospital"]):
-        return "Salud", 6
-    return "Automejora", 5
-
-
-def generar_textos_redes(titulo, texto_completo, categoria, viralidad):
-    """Genera textos optimizados para redes sociales"""
+def generar_texto_viral(analisis, categoria, viralidad):
+    """Genera texto optimizado para redes basado en el análisis real de la noticia"""
     
     emojis = {
         "Construccion": "🏗️",
@@ -277,44 +161,68 @@ def generar_textos_redes(titulo, texto_completo, categoria, viralidad):
     }
     emoji = emojis.get(categoria, "📚")
     
-    # Generar resumen automático
-    resumen = texto_completo[:350] if texto_completo else ""
+    # Extraer datos clave del análisis
+    puntos = analisis.get('puntos_clave_para_viralizar', [])
+    datos = analisis.get('datos_clave', {})
+    contexto = analisis.get('contexto', '')
+    impacto = analisis.get('impacto', '')
+    angulo = analisis.get('sugerencia_angulo_viral', '')
     
-    # Generar puntos clave desde el texto
-    frases = [s.strip() for s in re.split(r'[.!?]+', texto_completo) if len(s.strip()) > 30][:4]
-    puntos_clave = frases if len(frases) >= 3 else [texto_completo[:100], texto_completo[100:200], texto_completo[200:300]]
-    
-    texto_instagram = f"""{emoji} {titulo[:80]} {emoji}
+    # Construir texto para Instagram
+    instagram_text = f"""{emoji} {angulo or analisis.get('resumen_ejecutivo', '')[:60]} {emoji}
 
-📌 {resumen}
+🔥 {analisis.get('resumen_ejecutivo', '')}
 
-✨ {puntos_clave[0] if puntos_clave else ''}
-💡 {puntos_clave[1] if len(puntos_clave) > 1 else ''}
-🔑 {puntos_clave[2] if len(puntos_clave) > 2 else ''}
+📊 DATOS CLAVE:
+{chr(10).join([f'• {p}' for p in puntos[:3]]) if puntos else ''}
 
-💾 GUARDA este post para después
-👥 COMPARTE con alguien que le interese
+📍 {datos.get('lugar', '')}
+📅 {datos.get('fecha', '')}
+💰 {datos.get('cifras', [''])[0] if datos.get('cifras') else ''}
 
-#{categoria.replace(' ', '')} #Construex #Educacion #Aprende #Informacion
+{contexto[:200] if contexto else ''}
+
+✨ {impacto[:150] if impacto else ''}
+
+💾 GUARDA este post
+👥 COMPARTE con alguien
+
+{' '.join(analisis.get('hashtags_sugeridos', [f'#{categoria}', '#Construex', '#Noticias', '#Informacion'])[:10])}
 """
     
-    texto_facebook = f"""{titulo}
+    # Texto para Facebook (más formal)
+    facebook_text = f"""{angulo or analisis.get('resumen_ejecutivo', '')}
 
-{resumen}
+{analisis.get('resumen_ejecutivo', '')}
 
-📢 ¿Qué opinas sobre este tema?
+📌 PUNTOS CLAVE:
+{chr(10).join([f'✅ {p}' for p in puntos[:4]]) if puntos else ''}
 
-Déjanos tu comentario 👇
+{contexto[:300] if contexto else ''}
 
-#{categoria.replace(' ', '')} #Construex
+{impacto[:200] if impacto else ''}
+
+{' '.join(analisis.get('hashtags_sugeridos', [f'#{categoria}', '#Construex'])[:5])}
 """
     
     return {
-        "resumen": resumen,
-        "puntos_clave": puntos_clave[:3],
-        "texto_instagram": texto_instagram,
-        "texto_facebook": texto_facebook
+        "instagram": instagram_text,
+        "facebook": facebook_text
     }
+
+
+def clasificar_categoria(titulo, texto):
+    texto_lower = f"{titulo} {texto[:500]}".lower()
+    
+    if any(p in texto_lower for p in ["construc", "centro comercial", "mall", "obra", "edificio", "canal", "arquitect", "construcción"]):
+        return "Construccion", 9
+    elif any(p in texto_lower for p in ["negocio", "emprend", "empresa", "ventas", "inversion", "startup", "empleo", "trabajo"]):
+        return "Emprendimiento", 8
+    elif any(p in texto_lower for p in ["curso", "aprender", "educacion", "certificacion", "estudio", "universidad"]):
+        return "Construex University", 7
+    elif any(p in texto_lower for p in ["salud", "medico", "bienestar", "dieta", "ejercicio", "hospital"]):
+        return "Salud", 7
+    return "Automejora", 6
 
 
 @app.route('/')
@@ -323,7 +231,7 @@ def home():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Construex - Extractor de Contenido</title>
+        <title>Construex - Analizador de Noticias</title>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f0f0f; min-height: 100vh; padding: 20px; }
@@ -331,39 +239,40 @@ def home():
             .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; padding: 30px; margin-bottom: 30px; color: white; text-align: center; }
             .header h1 { font-size: 36px; margin-bottom: 10px; }
             .input-area { background: #1a1a2e; border-radius: 20px; padding: 25px; margin-bottom: 30px; text-align: center; }
-            input { width: 70%; padding: 15px; background: #2a2a3e; border: 1px solid #3a3a4e; border-radius: 12px; color: white; font-size: 16px; }
-            select { padding: 15px; background: #2a2a3e; border: 1px solid #3a3a4e; border-radius: 12px; color: white; margin-left: 10px; }
+            input { width: 80%; padding: 15px; background: #2a2a3e; border: 1px solid #3a3a4e; border-radius: 12px; color: white; font-size: 16px; }
             button { background: linear-gradient(135deg, #FF6B6B, #FF8E53); color: white; padding: 15px 30px; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-left: 10px; }
             button:hover { transform: scale(1.02); }
             .loading { text-align: center; padding: 40px; color: #aaa; display: none; }
             .resultado { display: none; margin-top: 20px; }
             .card { background: #1a1a2e; border-radius: 16px; margin-bottom: 20px; overflow: hidden; }
-            .card-header { background: #2a2a3e; padding: 15px 20px; color: white; font-weight: bold; }
+            .card-header { background: #2a2a3e; padding: 15px 20px; color: white; font-weight: bold; font-size: 18px; }
             .card-body { padding: 20px; }
-            textarea { width: 100%; background: #2a2a3e; color: white; border: none; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 13px; resize: vertical; }
-            .copy-btn { background: #3498db; padding: 8px 16px; border: none; border-radius: 8px; color: white; cursor: pointer; margin-top: 10px; }
-            .categoria-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 12px; margin-bottom: 10px; background: #9C27B0; }
-            .info-extra { background: #2a2a3e; padding: 15px; border-radius: 12px; margin-top: 15px; color: #ddd; font-size: 13px; }
+            textarea { width: 100%; background: #2a2a3e; color: white; border: none; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 13px; resize: vertical; margin-bottom: 10px; }
+            .copy-btn { background: #3498db; padding: 8px 16px; border: none; border-radius: 8px; color: white; cursor: pointer; }
+            .categoria-badge { display: inline-block; padding: 5px 15px; border-radius: 20px; font-size: 12px; margin-bottom: 10px; background: #9C27B0; margin-right: 10px; }
+            .info-box { background: #2a2a3e; padding: 15px; border-radius: 12px; margin-top: 15px; color: #ddd; font-size: 14px; line-height: 1.5; }
+            .datos-destacados { display: flex; flex-wrap: wrap; gap: 10px; margin: 15px 0; }
+            .dato-chip { background: #2a2a3e; padding: 8px 15px; border-radius: 20px; font-size: 13px; border-left: 3px solid #FFD700; }
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
                 <h1>🏗️ Construex Ecosystem</h1>
-                <p>Extrae contenido automáticamente desde cualquier enlace o PDF</p>
+                <p>Analiza noticias y genera contenido viral para redes sociales</p>
             </div>
             
             <div class="input-area">
-                <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo o https://ejemplo.com/documento.pdf">
-                <button onclick="generarContenido()">🚀 Extraer Contenido</button>
-                <div class="loading" id="loading">⏳ Extrayendo contenido del enlace...</div>
+                <input type="text" id="urlInput" placeholder="https://ejemplo.com/noticia">
+                <button onclick="analizarNoticia()">🚀 Analizar Noticia</button>
+                <div class="loading" id="loading">⏳ Leyendo y analizando la noticia...</div>
             </div>
             
             <div id="resultado" class="resultado"></div>
         </div>
         
         <script>
-        async function generarContenido() {
+        async function analizarNoticia() {
             const url = document.getElementById('urlInput').value;
             if (!url) { alert('Ingresa una URL'); return; }
             
@@ -371,10 +280,10 @@ def home():
             document.getElementById('resultado').style.display = 'none';
             
             try {
-                const response = await fetch('/procesar', {
+                const response = await fetch('/analizar', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mensaje: url })
+                    body: JSON.stringify({ url: url })
                 });
                 const data = await response.json();
                 
@@ -393,40 +302,57 @@ def home():
         function mostrarResultado(data) {
             let html = `
                 <div class="card">
-                    <div class="card-header">📋 INFORMACIÓN EXTRAÍDA</div>
+                    <div class="card-header">📋 ANÁLISIS DE LA NOTICIA</div>
                     <div class="card-body">
                         <span class="categoria-badge">📁 ${data.categoria}</span>
                         <span class="categoria-badge" style="background:#e67e22;">🔥 Viralidad: ${data.viralidad}/10</span>
                         <h3 style="color: white; margin: 15px 0;">${data.titulo}</h3>
-                        <div class="info-extra">
-                            <strong>📝 Resumen del artículo:</strong><br>
-                            ${data.resumen}
+                        
+                        <div class="info-box">
+                            <strong>📝 RESUMEN EJECUTIVO</strong><br>
+                            ${data.analisis.resumen_ejecutivo || 'No disponible'}
                         </div>
-                        <div class="info-extra" style="margin-top: 10px;">
-                            <strong>🔑 Puntos clave:</strong><br>
-                            • ${data.puntos_clave[0] || 'No disponible'}<br>
-                            • ${data.puntos_clave[1] || 'No disponible'}<br>
-                            • ${data.puntos_clave[2] || 'No disponible'}
+                        
+                        <div class="datos-destacados">
+                            ${data.analisis.datos_clave?.fecha ? `<div class="dato-chip">📅 ${data.analisis.datos_clave.fecha}</div>` : ''}
+                            ${data.analisis.datos_clave?.lugar ? `<div class="dato-chip">📍 ${data.analisis.datos_clave.lugar}</div>` : ''}
+                            ${(data.analisis.datos_clave?.cifras || []).map(c => `<div class="dato-chip">💰 ${c}</div>`).join('')}
                         </div>
-                        <div class="info-extra" style="margin-top: 10px;">
-                            <strong>📄 Texto extraído (primeros 500 caracteres):</strong><br>
-                            ${data.texto_completo ? data.texto_completo.substring(0, 500) + '...' : 'No disponible'}
+                        
+                        <div class="info-box">
+                            <strong>🎯 CONTEXTO</strong><br>
+                            ${data.analisis.contexto || 'No disponible'}
+                        </div>
+                        
+                        <div class="info-box">
+                            <strong>⚡ IMPACTO POTENCIAL</strong><br>
+                            ${data.analisis.impacto || 'No disponible'}
+                        </div>
+                        
+                        <div class="info-box">
+                            <strong>🔥 PUNTOS CLAVE PARA VIRALIZAR</strong><br>
+                            ${(data.analisis.puntos_clave_para_viralizar || []).map((p, i) => `${i+1}️⃣ ${p}<br>`).join('')}
+                        </div>
+                        
+                        <div class="info-box">
+                            <strong>💡 SUGERENCIA DE ÁNGULO VIRAL</strong><br>
+                            ${data.analisis.sugerencia_angulo_viral || 'No disponible'}
                         </div>
                     </div>
                 </div>
                 
                 <div class="card">
-                    <div class="card-header">📱 TEXTO PARA INSTAGRAM</div>
+                    <div class="card-header">📱 CONTENIDO PARA INSTAGRAM</div>
                     <div class="card-body">
-                        <textarea id="textoInstagram" rows="14" readonly style="width:100%;">${data.texto_instagram}</textarea>
+                        <textarea id="textoInstagram" rows="16" readonly style="width:100%;">${data.texto_instagram}</textarea>
                         <button class="copy-btn" onclick="copiarTexto('textoInstagram')">📋 Copiar para Instagram</button>
                     </div>
                 </div>
                 
                 <div class="card">
-                    <div class="card-header">📘 TEXTO PARA FACEBOOK</div>
+                    <div class="card-header">📘 CONTENIDO PARA FACEBOOK</div>
                     <div class="card-body">
-                        <textarea id="textoFacebook" rows="8" readonly style="width:100%;">${data.texto_facebook}</textarea>
+                        <textarea id="textoFacebook" rows="10" readonly style="width:100%;">${data.texto_facebook}</textarea>
                         <button class="copy-btn" onclick="copiarTexto('textoFacebook')">📋 Copiar para Facebook</button>
                     </div>
                 </div>
@@ -448,49 +374,39 @@ def home():
     """
 
 
-@app.route('/procesar', methods=['POST'])
-def procesar():
+@app.route('/analizar', methods=['POST'])
+def analizar():
     data = request.get_json()
-    mensaje = data.get('mensaje', '')
+    url = data.get('url', '')
     
-    if not mensaje:
-        return jsonify({"error": "No hay mensaje"}), 400
+    if not url:
+        return jsonify({"error": "No hay URL"}), 400
     
-    enlaces = extraer_enlaces(mensaje)
-    if not enlaces:
-        return jsonify({"error": "No se encontraron enlaces"}), 400
+    # 1. Extraer contenido completo
+    contenido = leer_contenido_completo_url(url)
+    if not contenido['exito']:
+        return jsonify({"error": contenido.get('error', 'No se pudo acceder')}), 400
     
-    # Extraer contenido usando múltiples métodos
-    contenido = extraer_contenido_inteligente(enlaces[0])
+    # 2. Clasificar categoría
+    categoria, viralidad = clasificar_categoria(contenido['titulo'], contenido['texto_completo'])
     
-    if not contenido or not contenido.get('exito'):
-        error_msg = contenido.get('error', 'No se pudo extraer el contenido') if contenido else 'Error desconocido'
-        return jsonify({"error": error_msg}), 400
+    # 3. Analizar con Gemini (como periodista)
+    analisis = analizar_noticia_con_gemini(contenido['titulo'], contenido['texto_completo'], url)
     
-    # Clasificar categoría usando el texto completo
-    categoria, viralidad = clasificar_categoria(
-        contenido.get('titulo', ''), 
-        contenido.get('texto_completo', '')
-    )
+    if not analisis:
+        return jsonify({"error": "No se pudo analizar la noticia"}), 500
     
-    # Generar textos para redes
-    textos = generar_textos_redes(
-        contenido.get('titulo', ''),
-        contenido.get('texto_completo', ''),
-        categoria,
-        viralidad
-    )
+    # 4. Generar textos virales
+    textos = generar_texto_viral(analisis, categoria, viralidad)
     
     return jsonify({
         "exito": True,
         "categoria": categoria,
         "viralidad": viralidad,
-        "titulo": contenido.get('titulo', 'Sin título'),
-        "resumen": textos['resumen'],
-        "puntos_clave": textos['puntos_clave'],
-        "texto_instagram": textos['texto_instagram'],
-        "texto_facebook": textos['texto_facebook'],
-        "texto_completo": contenido.get('texto_completo', '')
+        "titulo": contenido['titulo'],
+        "analisis": analisis,
+        "texto_instagram": textos['instagram'],
+        "texto_facebook": textos['facebook']
     })
 
 
