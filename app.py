@@ -1,6 +1,6 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - EXTRACCIÓN PRECISA + IMÁGENES
+         CONSTRUEX ECOSYSTEM - VERSIÓN COMPLETA
 ======================================================================
 """
 
@@ -38,10 +38,6 @@ def extraer_enlaces(texto):
 
 
 def extraer_articulo_con_newspaper(url):
-    """
-    Extrae SOLO el artículo principal usando newspaper3k
-    Ignora menús, publicidad, secciones laterales
-    """
     try:
         article = Article(url, language='es')
         article.download()
@@ -52,31 +48,27 @@ def extraer_articulo_con_newspaper(url):
                 "exito": True,
                 "titulo": article.title or "Sin título",
                 "texto_completo": article.text,
-                "texto_resumen": article.text[:2000],
+                "texto_resumen": article.text[:3000],
                 "autores": article.authors,
                 "fecha_publicacion": str(article.publish_date) if article.publish_date else "",
                 "imagen_principal": article.top_image,
                 "dominio": urlparse(url).netloc
             }
-        else:
-            return None
+        return None
     except Exception as e:
-        print(f"Error con newspaper: {e}")
+        print(f"Error newspaper: {e}")
         return None
 
 
 def extraer_contenido_fallback(url):
-    """Extracción manual de respaldo"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, timeout=15, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Eliminar elementos no deseados
-        for element in soup(["script", "style", "nav", "footer", "header", "aside", "iframe"]):
+        for element in soup(["script", "style", "nav", "footer", "header", "aside"]):
             element.decompose()
         
-        # Intentar encontrar el artículo
         articulo = soup.find('article') or soup.find('main') or soup.find('div', class_=re.compile(r'article|content|post'))
         
         if articulo:
@@ -99,15 +91,11 @@ def extraer_contenido_fallback(url):
 
 
 def extraer_contenido_inteligente(url):
-    """Orquesta la extracción, priorizando newspaper3k"""
-    
-    # 1. Intentar con newspaper3k (mejor para noticias)
     resultado = extraer_articulo_con_newspaper(url)
     if resultado and resultado.get('exito'):
         print("   ✅ Extraído con newspaper3k")
         return resultado
     
-    # 2. Fallback manual
     resultado = extraer_contenido_fallback(url)
     if resultado and resultado.get('exito'):
         print("   ✅ Extraído con método manual")
@@ -117,28 +105,24 @@ def extraer_contenido_inteligente(url):
 
 
 def analizar_noticia_con_gemini(titulo, texto_completo):
-    """Analiza la noticia y extrae información clave"""
-    
     prompt = f"""
-    Analiza la siguiente noticia y extrae la información más importante.
+    Analiza la siguiente noticia y extrae TODA la información importante.
     
     TÍTULO: {titulo}
     
-    TEXTO DE LA NOTICIA:
-    {texto_completo[:6000]}
+    TEXTO COMPLETO:
+    {texto_completo[:5000]}
     
-    Responde SOLO con JSON en este formato:
+    Responde SOLO con JSON en este formato EXACTO. Si no encuentras un campo, déjalo como cadena vacía:
     
     {{
-        "resumen": "Resumen de la noticia en 2-3 líneas, explicando QUÉ pasó",
-        "datos_clave": {{
-            "fecha": "Fecha del evento si aparece",
-            "lugar": "Lugar donde ocurre",
-            "cifras": ["cifra importante 1", "cifra importante 2"],
-            "protagonistas": ["persona o empresa 1", "persona o empresa 2"]
-        }},
-        "contexto": "Contexto breve de por qué es importante",
-        "impacto": "Impacto potencial"
+        "resumen": "Resumen completo de la noticia en 3-4 líneas explicando qué pasó, cuándo, dónde y cifras importantes",
+        "fecha": "Fecha del evento principal (ej: mayo 2026, 1 de mayo, etc.)",
+        "lugar": "Lugar donde ocurre (ciudad, país, provincia)",
+        "cifras": ["cifra 1", "cifra 2", "cifra 3"],
+        "protagonistas": ["protagonista 1", "protagonista 2"],
+        "contexto": "Contexto breve de por qué es importante esta noticia",
+        "impacto": "Impacto o repercusión de esta noticia"
     }}
     """
     
@@ -147,44 +131,40 @@ def analizar_noticia_con_gemini(titulo, texto_completo):
         texto = respuesta.text
         if "```json" in texto:
             texto = texto.split("```json")[1].split("```")[0]
+        elif "```" in texto:
+            texto = texto.split("```")[1].split("```")[0]
         return json.loads(texto.strip())
     except Exception as e:
         print(f"Error Gemini: {e}")
         return {
-            "resumen": texto_completo[:300],
-            "datos_clave": {"fecha": "", "lugar": "", "cifras": [], "protagonistas": []},
+            "resumen": texto_completo[:500],
+            "fecha": "",
+            "lugar": "",
+            "cifras": [],
+            "protagonistas": [],
             "contexto": "",
             "impacto": ""
         }
 
 
 def generar_imagen(titulo, categoria):
-    """Genera imagen profesional con Pollinations"""
-    
-    prompt = f"Professional social media post image for {categoria} category. Topic: {titulo[:80]}. Style: modern, clean, professional, eye-catching, suitable for Instagram. High quality, 4K, vibrant colors."
-    
+    prompt = f"Professional social media post image for {categoria} category. Topic: {titulo[:80]}. Modern, clean, professional, eye-catching. High quality, 4K, vibrant colors."
     url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}?width=1080&height=1080&nologo=true"
     
     try:
         print(f"   🖼️ Generando imagen...")
         response = requests.get(url, timeout=60)
-        
         if response.status_code == 200:
             timestamp = str(int(time.time()))
             nombre = re.sub(r'[^\w\s-]', '', titulo[:30]).replace(' ', '_')
             filename = f"imagen_{timestamp}_{nombre}.png"
             filepath = os.path.join(IMAGENES_DIR, filename)
-            
             with open(filepath, 'wb') as f:
                 f.write(response.content)
-            
-            print(f"   ✅ Imagen guardada: {filepath}")
             return f"/imagenes/{filename}"
-        else:
-            print(f"   ❌ Error: {response.status_code}")
-            return None
+        return None
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"Error imagen: {e}")
         return None
 
 
@@ -192,19 +172,17 @@ def clasificar_categoria(titulo, texto):
     texto_lower = f"{titulo} {texto[:500]}".lower()
     
     if any(p in texto_lower for p in ["construc", "centro comercial", "mall", "obra", "edificio", "canal", "construcción"]):
-        return "Construccion", 9
-    elif any(p in texto_lower for p in ["negocio", "emprend", "empresa", "ventas", "inversion", "empleo", "trabajo"]):
-        return "Emprendimiento", 8
-    elif any(p in texto_lower for p in ["curso", "aprender", "educacion", "certificacion", "estudio"]):
-        return "Construex University", 7
-    elif any(p in texto_lower for p in ["salud", "medico", "bienestar", "dieta", "ejercicio"]):
-        return "Salud", 7
-    return "Automejora", 6
+        return "Construccion"
+    elif any(p in texto_lower for p in ["negocio", "emprend", "empresa", "ventas", "inversion", "empleo"]):
+        return "Emprendimiento"
+    elif any(p in texto_lower for p in ["curso", "aprender", "educacion", "certificacion"]):
+        return "Construex University"
+    elif any(p in texto_lower for p in ["salud", "medico", "bienestar", "dieta"]):
+        return "Salud"
+    return "Automejora"
 
 
 def generar_texto_redes(titulo, analisis, categoria):
-    """Genera texto optimizado para redes sociales"""
-    
     emojis = {
         "Construccion": "🏗️",
         "Emprendimiento": "🚀",
@@ -214,41 +192,76 @@ def generar_texto_redes(titulo, analisis, categoria):
     }
     emoji = emojis.get(categoria, "📚")
     
-    datos = analisis.get('datos_clave', {})
-    lugar = datos.get('lugar', '')
-    fecha = datos.get('fecha', '')
-    cifras = datos.get('cifras', [])
     resumen = analisis.get('resumen', titulo)
+    lugar = analisis.get('lugar', '')
+    fecha = analisis.get('fecha', '')
+    cifras = analisis.get('cifras', [])
+    contexto = analisis.get('contexto', '')
     impacto = analisis.get('impacto', '')
     
-    texto_instagram = f"""{emoji} {titulo[:70]} {emoji}
-
-📌 {resumen}
-
-{chr(10).join([f'💰 {c}' for c in cifras[:2]]) if cifras else ''}
-
-📍 {lugar}
-📅 {fecha}
-
-✨ {impacto[:150] if impacto else ''}
-
-💾 GUARDA este post
-👥 COMPARTE con alguien
-
-#{categoria.replace(' ', '')} #Construex #Noticias
-"""
+    # Construir texto de Instagram
+    instagram_lines = []
+    instagram_lines.append(f"{emoji} {titulo[:70]} {emoji}")
+    instagram_lines.append("")
+    instagram_lines.append(f"📌 {resumen}")
+    instagram_lines.append("")
     
-    texto_facebook = f"""{titulo}
-
-{resumen}
-
-{f'📍 {lugar}' if lugar else ''}
-{f'📅 {fecha}' if fecha else ''}
-
-{impacto[:200] if impacto else ''}
-
-#{categoria.replace(' ', '')} #Construex
-"""
+    if cifras:
+        instagram_lines.append("💰 DATOS CLAVE:")
+        for c in cifras[:3]:
+            instagram_lines.append(f"   • {c}")
+        instagram_lines.append("")
+    
+    if lugar or fecha:
+        info_line = ""
+        if lugar:
+            info_line += f"📍 {lugar}"
+        if fecha:
+            info_line += f"   📅 {fecha}"
+        if info_line:
+            instagram_lines.append(info_line)
+            instagram_lines.append("")
+    
+    if contexto:
+        instagram_lines.append(f"🎯 {contexto}")
+        instagram_lines.append("")
+    
+    if impacto:
+        instagram_lines.append(f"✨ {impacto}")
+        instagram_lines.append("")
+    
+    instagram_lines.append("💾 GUARDA este post")
+    instagram_lines.append("👥 COMPARTE con alguien")
+    instagram_lines.append("")
+    instagram_lines.append(f"#{categoria.replace(' ', '')} #Construex #Noticias")
+    
+    texto_instagram = "\n".join(instagram_lines)
+    
+    # Texto para Facebook (más simple)
+    facebook_lines = []
+    facebook_lines.append(titulo)
+    facebook_lines.append("")
+    facebook_lines.append(resumen)
+    facebook_lines.append("")
+    
+    if cifras:
+        facebook_lines.append("Datos clave:")
+        for c in cifras[:3]:
+            facebook_lines.append(f"• {c}")
+        facebook_lines.append("")
+    
+    if lugar or fecha:
+        info = ""
+        if lugar:
+            info += f"📍 {lugar}"
+        if fecha:
+            info += f" | 📅 {fecha}"
+        facebook_lines.append(info)
+        facebook_lines.append("")
+    
+    facebook_lines.append(f"#{categoria.replace(' ', '')} #Construex")
+    
+    texto_facebook = "\n".join(facebook_lines)
     
     return texto_instagram, texto_facebook
 
@@ -262,13 +275,12 @@ def home():
         <title>Construex - Generador de Contenido</title>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f0f0f; min-height: 100vh; padding: 20px; }
+            body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f0f0f; padding: 20px; }
             .container { max-width: 1000px; margin: 0 auto; }
             .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; padding: 30px; margin-bottom: 30px; color: white; text-align: center; }
-            .header h1 { font-size: 36px; margin-bottom: 10px; }
             .input-area { background: #1a1a2e; border-radius: 20px; padding: 25px; margin-bottom: 30px; text-align: center; }
             input { width: 70%; padding: 15px; background: #2a2a3e; border: 1px solid #3a3a4e; border-radius: 12px; color: white; font-size: 16px; }
-            button { background: linear-gradient(135deg, #FF6B6B, #FF8E53); color: white; padding: 15px 30px; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; margin-left: 10px; }
+            button { background: linear-gradient(135deg, #FF6B6B, #FF8E53); color: white; padding: 15px 30px; border: none; border-radius: 12px; font-size: 16px; cursor: pointer; margin-left: 10px; }
             button:hover { transform: scale(1.02); }
             .loading { text-align: center; padding: 40px; color: #aaa; display: none; }
             .resultado { display: none; margin-top: 20px; }
@@ -332,19 +344,12 @@ def home():
                     <div class="card-header">📋 ANÁLISIS DE LA NOTICIA</div>
                     <div class="card-body">
                         <span class="categoria-badge">📁 ${data.categoria}</span>
-                        <span class="categoria-badge" style="background:#e67e22;">🔥 Viralidad: ${data.viralidad}/10</span>
                         <h3 style="color: white; margin: 15px 0;">${data.titulo}</h3>
-                        
-                        ${data.imagen_url ? `<img src="${data.imagen_url}" class="preview-img" alt="Imagen generada"><br>` : ''}
-                        
-                        <div class="info-box">
-                            <strong>📝 RESUMEN</strong><br>
-                            ${data.analisis.resumen || 'No disponible'}
-                        </div>
-                        
-                        ${data.analisis.datos_clave?.fecha ? `<div class="info-box"><strong>📅 FECHA:</strong><br>${data.analisis.datos_clave.fecha}</div>` : ''}
-                        ${data.analisis.datos_clave?.lugar ? `<div class="info-box"><strong>📍 LUGAR:</strong><br>${data.analisis.datos_clave.lugar}</div>` : ''}
-                        ${data.analisis.datos_clave?.cifras?.length ? `<div class="info-box"><strong>💰 CIFRAS CLAVE:</strong><br>${data.analisis.datos_clave.cifras.join('<br>')}</div>` : ''}
+                        ${data.imagen_url ? `<img src="${data.imagen_url}" class="preview-img"><br>` : ''}
+                        <div class="info-box"><strong>📝 RESUMEN</strong><br>${data.analisis.resumen || 'No disponible'}</div>
+                        ${data.analisis.fecha ? `<div class="info-box"><strong>📅 FECHA</strong><br>${data.analisis.fecha}</div>` : ''}
+                        ${data.analisis.lugar ? `<div class="info-box"><strong>📍 LUGAR</strong><br>${data.analisis.lugar}</div>` : ''}
+                        ${data.analisis.cifras?.length ? `<div class="info-box"><strong>💰 CIFRAS CLAVE</strong><br>${data.analisis.cifras.join('<br>')}</div>` : ''}
                     </div>
                 </div>
                 
@@ -389,21 +394,16 @@ def procesar():
     if not url:
         return jsonify({"error": "No hay URL"}), 400
     
-    # 1. Extraer contenido preciso del artículo
     contenido = extraer_contenido_inteligente(url)
     if not contenido['exito']:
         return jsonify({"error": contenido.get('error', 'No se pudo extraer')}), 400
     
-    # 2. Clasificar categoría
-    categoria, viralidad = clasificar_categoria(contenido['titulo'], contenido['texto_resumen'])
+    categoria = clasificar_categoria(contenido['titulo'], contenido['texto_resumen'])
     
-    # 3. Analizar con Gemini
     analisis = analizar_noticia_con_gemini(contenido['titulo'], contenido['texto_resumen'])
     
-    # 4. Generar imagen
     imagen_url = generar_imagen(contenido['titulo'], categoria)
     
-    # 5. Generar textos para redes
     texto_instagram, texto_facebook = generar_texto_redes(
         contenido['titulo'], analisis, categoria
     )
@@ -411,7 +411,6 @@ def procesar():
     return jsonify({
         "exito": True,
         "categoria": categoria,
-        "viralidad": viralidad,
         "titulo": contenido['titulo'],
         "analisis": analisis,
         "imagen_url": imagen_url,
@@ -432,5 +431,4 @@ def test():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
-    print(f"🚀 Servidor corriendo en puerto {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
