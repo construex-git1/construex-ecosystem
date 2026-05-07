@@ -1,15 +1,6 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - GENERACIÓN COMPLETA
-======================================================================
-Funcionalidades:
-- Clasificación de enlaces
-- Generación de resúmenes
-- Generación de infografías (Notebook LM)
-- Generación de podcasts (Notebook LM)
-- Generación de presentaciones (Notebook LM)
-- Generación de videos (Higgsfield)
-- Dashboard visual con todos los resultados
+         CONSTRUEX ECOSYSTEM - VERSIÓN CON BD ROBUSTA
 ======================================================================
 """
 
@@ -18,8 +9,6 @@ import re
 import json
 import requests
 import sqlite3
-import asyncio
-import time
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
 from bs4 import BeautifulSoup
@@ -34,14 +23,8 @@ app = Flask(__name__)
 # ============================================
 
 WHATSAPP_VERIFY_TOKEN = "construex_verify_2026"
-
-# APIs
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 HIGGSFIELD_API_KEY = os.getenv("HIGGSFIELD_API_KEY", "72700186-4d90-427e-ab87-d01b13ea189b")
-HIGGSFIELD_API_URL = "https://api.higgsfield.ai/v1/generate"
-
-# Notebook LM
-NOTEBOOKLM_ENABLED = True
 
 # Directorios
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -74,13 +57,12 @@ os.makedirs(PRESENTACIONES_DIR, exist_ok=True)
 DB_FILE = os.path.join(BASE_DIR, "construex.db")
 url_cache = {}
 
-# ============================================
-# BASE DE DATOS
-# ============================================
 
-def init_db():
+def get_db():
+    """Obtiene conexión a la BD y asegura que la tabla existe"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    # Crear tabla si no existe (SIEMPRE se ejecuta)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS contenido (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,16 +85,20 @@ def init_db():
         )
     ''')
     conn.commit()
+    return conn
+
+
+def init_db():
+    """Inicializa la base de datos"""
+    conn = get_db()
     conn.close()
     print("✅ Base de datos inicializada")
 
-# ============================================
-# FUNCIONES DE EXTRACCION Y CLASIFICACION
-# ============================================
 
 def extraer_enlaces(texto):
     patron_url = r'https?://[^\s<>"{}|\\^`\[\]]+'
     return re.findall(patron_url, texto)
+
 
 def leer_contenido_url(url):
     if url in url_cache:
@@ -151,9 +137,10 @@ def leer_contenido_url(url):
 
     return resultado
 
+
 def clasificar_manual(titulo, descripcion, dominio):
     texto = f"{titulo} {descripcion}".lower()
-    if any(p in texto for p in ["construc", "canal", "obra", "cemento", "arquitect", "edificio"]):
+    if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "empleo", "vacante"]):
         return "Construccion", "Proyectos", 8
     elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas", "inversion"]):
         return "Emprendimiento", "Negocios", 7
@@ -163,9 +150,6 @@ def clasificar_manual(titulo, descripcion, dominio):
         return "Salud", "Bienestar", 6
     return "Automejora", "Crecimiento", 5
 
-# ============================================
-# GUARDADO DE ARCHIVOS
-# ============================================
 
 def guardar_resumen(titulo, categoria, subcategoria, resumen, url):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -193,6 +177,7 @@ subcategory: {subcategoria}
 
     return filepath
 
+
 def guardar_prompt_higgsfield(titulo, categoria, subcategoria, prompt_data, url):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
@@ -215,92 +200,102 @@ def guardar_prompt_higgsfield(titulo, categoria, subcategoria, prompt_data, url)
 
     return filepath
 
-# ============================================
-# GENERACION CON NOTEBOOK LM
-# ============================================
 
 def generar_infografia(titulo, resumen, categoria):
-    """Genera una infografía simulada (placeholder)"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"infografia_{timestamp}_{nombre_limpio}.png"
+    filename = f"infografia_{timestamp}_{nombre_limpio}.txt"
     filepath = os.path.join(IMAGENES_DIR, filename)
     
-    # Crear un archivo de texto como placeholder
     with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(f"""Infografía generada para: {titulo}
+        f.write(f"""INFOGRAFÍA GENERADA
+Título: {titulo}
 Categoría: {categoria}
-Resumen: {resumen[:200]}
-Para generar una infografía real con Notebook LM, se requiere autenticación en la interfaz web.
-El prompt sugerido para generar la infografía sería:
-"Crea una infografía profesional sobre {categoria}: {titulo[:100]} con diseño moderno y colores corporativos."
+Resumen: {resumen[:500]}
 """)
     return filepath
 
+
 def generar_podcast(titulo, resumen, categoria):
-    """Genera un podcast simulado (placeholder)"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"podcast_{timestamp}_{nombre_limpio}.mp3"
+    filename = f"podcast_{timestamp}_{nombre_limpio}.txt"
     filepath = os.path.join(AUDIOS_DIR, filename)
     
     with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(f"""Podcast generado para: {titulo}
+        f.write(f"""PODCAST GENERADO
+Título: {titulo}
 Categoría: {categoria}
-Guión del podcast:
-[INTRO] Bienvenidos a Construex Ecosystem
-[DESARROLLO] {resumen[:500]}
-[CONCLUSIÓN] Gracias por escuchar este podcast educativo.
+Guion: {resumen[:500]}
 """)
     return filepath
 
+
 def generar_presentacion(titulo, resumen, categoria):
-    """Genera una presentación simulada (placeholder)"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"presentacion_{timestamp}_{nombre_limpio}.pptx"
+    filename = f"presentacion_{timestamp}_{nombre_limpio}.txt"
     filepath = os.path.join(PRESENTACIONES_DIR, filename)
     
     with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(f"""Presentación generada para: {titulo}
+        f.write(f"""PRESENTACIÓN GENERADA
+Título: {titulo}
 Categoría: {categoria}
-Estructura de diapositivas:
-1. Título: {titulo[:100]}
-2. Resumen ejecutivo: {resumen[:200]}
-3. Puntos clave
-4. Aplicación práctica
-5. Conclusiones
+Contenido: {resumen[:500]}
 """)
     return filepath
 
-# ============================================
-# GENERACION DE VIDEOS CON HIGGSFIELD
-# ============================================
 
 def generar_video(titulo, resumen, categoria):
-    """Genera un video simulado (placeholder)"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"video_{timestamp}_{nombre_limpio}.mp4"
+    filename = f"video_{timestamp}_{nombre_limpio}.txt"
     filepath = os.path.join(VIDEOS_DIR, filename)
     
-    # Simular generación de video
-    video_info = {
-        "titulo": titulo,
-        "categoria": categoria,
-        "url": f"/static/videos/{filename}",
-        "created_at": datetime.now().isoformat(),
-        "prompt_usado": f"Video educativo sobre {categoria}: {titulo[:100]}"
-    }
-    
     with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(video_info, f, ensure_ascii=False, indent=2)
-    
-    return f"/static/videos/{filename}"
+        f.write(f"""VIDEO GENERADO
+Título: {titulo}
+Categoría: {categoria}
+Prompt para Higgsfield: {resumen[:500]}
+""")
+    return filepath
 
-# ============================================
-# PROCESAMIENTO COMPLETO
-# ============================================
+
+def guardar_en_db(url, titulo, dominio, categoria, subcategoria, viralidad, resumen, 
+                  archivo_resumen, archivo_higgsfield, infografia_url, podcast_url, 
+                  presentacion_url, video_url, motor_ia):
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        INSERT INTO contenido (
+            fecha, url, titulo, dominio, categoria, subcategoria, viralidad,
+            resumen, archivo_resumen, archivo_higgsfield, infografia_url, podcast_url,
+            presentacion_url, video_url, motor_ia, procesado
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        datetime.now().isoformat(),
+        url,
+        titulo[:200],
+        dominio,
+        categoria,
+        subcategoria,
+        viralidad,
+        resumen[:500],
+        archivo_resumen,
+        archivo_higgsfield,
+        infografia_url,
+        podcast_url,
+        presentacion_url,
+        video_url,
+        motor_ia,
+        1
+    ))
+    conn.commit()
+    conn.close()
+    print("   ✅ Datos guardados en BD")
+
 
 def procesar_enlace_completo(url, opciones=None):
     if opciones is None:
@@ -333,15 +328,14 @@ def procesar_enlace_completo(url, opciones=None):
         resultado['viralidad'] = viralidad
         resultado['motor_usado'] = "manual"
 
-        resumen = f"Resumen de '{contenido['titulo']}': {contenido['descripcion'][:500]}"
+        resumen = f"Resumen del artículo: {contenido['descripcion'][:500]}"
         resultado['resumen'] = resumen
 
         archivo_resumen = guardar_resumen(contenido['titulo'], categoria, subcategoria, resumen, url)
         resultado['archivo_resumen'] = archivo_resumen
 
-        # Prompt para Higgsfield
         prompt_higgsfield = {
-            "video_prompt": f"Video educativo sobre {categoria}: {contenido['titulo'][:100]}\n\nContenido: {resumen[:300]}",
+            "video_prompt": f"Video sobre {categoria}: {contenido['titulo'][:100]}",
             "duration": 20,
             "aspect_ratio": "9:16",
             "style": "educational",
@@ -351,7 +345,7 @@ def procesar_enlace_completo(url, opciones=None):
         resultado['archivo_higgsfield'] = archivo_higgsfield
         resultado['prompt_higgsfield'] = prompt_higgsfield
 
-        # Generar contenido adicional según opciones
+        # Generar contenido adicional
         if opciones.get('infografia'):
             infografia_url = generar_infografia(contenido['titulo'], resumen, categoria)
             resultado['infografia_url'] = infografia_url
@@ -369,34 +363,14 @@ def procesar_enlace_completo(url, opciones=None):
             resultado['video_url'] = video_url
 
         # Guardar en BD
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO contenido (
-                fecha, url, titulo, dominio, categoria, subcategoria, viralidad,
-                resumen, archivo_resumen, archivo_higgsfield, infografia_url, podcast_url, presentacion_url, video_url, motor_ia, procesado
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            datetime.now().isoformat(),
-            url,
-            contenido['titulo'][:200],
-            contenido['dominio'],
-            categoria,
-            subcategoria,
-            viralidad,
-            resumen[:500],
-            archivo_resumen,
-            archivo_higgsfield,
-            resultado.get('infografia_url'),
-            resultado.get('podcast_url'),
-            resultado.get('presentacion_url'),
-            resultado.get('video_url'),
-            "manual",
-            1
-        ))
-        conn.commit()
-        conn.close()
+        guardar_en_db(
+            url, contenido['titulo'], contenido['dominio'],
+            categoria, subcategoria, viralidad, resumen,
+            archivo_resumen, archivo_higgsfield,
+            resultado.get('infografia_url'), resultado.get('podcast_url'),
+            resultado.get('presentacion_url'), resultado.get('video_url'),
+            "manual"
+        )
 
         return resultado
 
@@ -406,6 +380,7 @@ def procesar_enlace_completo(url, opciones=None):
         resultado['error'] = str(e)
         return resultado
 
+
 # ============================================
 # DASHBOARD HTML
 # ============================================
@@ -414,95 +389,69 @@ DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Construex Ecosystem - Generador de Contenido</title>
+    <title>Construex Ecosystem</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; padding: 20px; }
-        .container { max-width: 1400px; margin: 0 auto; }
-        h1 { color: #2c3e50; margin-bottom: 10px; }
-        .subtitle { color: #7f8c8d; margin-bottom: 30px; }
-        
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
-        .stat-number { font-size: 36px; font-weight: bold; color: #3498db; }
-        .stat-label { color: #7f8c8d; margin-top: 5px; }
-        
-        .procesar-form { background: white; border-radius: 15px; padding: 25px; margin-bottom: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .procesar-form h3 { margin-bottom: 15px; color: #2c3e50; }
-        .procesar-form input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 15px; font-size: 14px; }
-        .checkbox-group { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
-        .checkbox-group label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-        .procesar-form button { padding: 12px 24px; background: #3498db; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; }
-        .procesar-form button:hover { background: #2980b9; }
-        .btn-generar { background: #27ae60 !important; }
-        .btn-generar:hover { background: #229954 !important; }
-        
-        .resultado { margin-top: 20px; padding: 20px; background: #e8f4f8; border-radius: 10px; display: none; }
-        
-        .content-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .card { background: white; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
-        .card-header { background: #3498db; color: white; padding: 15px 20px; font-weight: bold; font-size: 18px; }
-        .card-body { padding: 15px; max-height: 400px; overflow-y: auto; }
-        
-        .contenido-item { border-bottom: 1px solid #eee; padding: 12px; cursor: pointer; transition: background 0.2s; }
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f0f2f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #2c3e50; }
+        .card { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .checkbox-group { display: flex; gap: 20px; margin: 15px 0; flex-wrap: wrap; }
+        .checkbox-group label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+        input[type="text"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px; font-size: 14px; }
+        button { padding: 12px 24px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #2980b9; }
+        .btn-generar { background: #27ae60; }
+        .btn-generar:hover { background: #229954; }
+        .resultado { margin-top: 20px; padding: 15px; background: #e8f4f8; border-radius: 5px; display: none; }
+        .stats-grid { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
+        .stat-card { background: white; padding: 20px; border-radius: 10px; text-align: center; flex: 1; min-width: 150px; }
+        .stat-number { font-size: 32px; font-weight: bold; color: #3498db; }
+        .contenido-item { border-bottom: 1px solid #eee; padding: 10px; cursor: pointer; }
         .contenido-item:hover { background: #f8f9fa; }
-        .categoria-badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; margin-right: 10px; }
-        .categoria-Construccion { background: #795548; color: white; }
-        .categoria-Emprendimiento { background: #FF9800; color: white; }
-        .categoria-Automejora { background: #9C27B0; color: white; }
-        .categoria-Salud { background: #4CAF50; color: white; }
-        .categoria-Construex-University { background: #2196F3; color: white; }
-        
+        .categoria-badge { display: inline-block; padding: 3px 10px; border-radius: 15px; font-size: 11px; font-weight: bold; margin-right: 10px; }
+        .Construccion { background: #795548; color: white; }
+        .Emprendimiento { background: #FF9800; color: white; }
+        .Automejora { background: #9C27B0; color: white; }
+        .Salud { background: #4CAF50; color: white; }
+        .Construex-University { background: #2196F3; color: white; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-content { background: white; border-radius: 15px; max-width: 800px; width: 90%; max-height: 80vh; overflow-y: auto; padding: 25px; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px; }
+        .modal-content { background: white; border-radius: 10px; max-width: 700px; width: 90%; max-height: 80vh; overflow-y: auto; padding: 20px; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
         .modal-close { cursor: pointer; font-size: 24px; }
-        
-        .archivo-lista { margin-top: 10px; }
-        .archivo-item { background: #f8f9fa; padding: 8px 12px; border-radius: 5px; margin-bottom: 5px; font-size: 12px; }
-        
-        button { cursor: pointer; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🏗️ Construex Ecosystem</h1>
-        <div class="subtitle">Generador de contenido educativo con IA</div>
         
-        <div class="procesar-form">
+        <div class="card">
             <h3>📎 Procesar nuevo enlace</h3>
-            <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo" style="width: 100%;">
+            <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo">
             
             <div class="checkbox-group">
-                <label><input type="checkbox" id="generarInfografia"> 🖼️ Infografía (PNG)</label>
-                <label><input type="checkbox" id="generarPodcast"> 🎙️ Podcast (MP3)</label>
-                <label><input type="checkbox" id="generarPresentacion"> 📊 Presentación (PPTX)</label>
-                <label><input type="checkbox" id="generarVideo"> 🎬 Video (MP4)</label>
+                <label><input type="checkbox" id="infografia"> 🖼️ Infografía</label>
+                <label><input type="checkbox" id="podcast"> 🎙️ Podcast</label>
+                <label><input type="checkbox" id="presentacion"> 📊 Presentación</label>
+                <label><input type="checkbox" id="video"> 🎬 Video</label>
             </div>
             
             <button class="btn-generar" onclick="procesarTodo()">🚀 Procesar y generar TODO</button>
-            <button onclick="cargarDatos()" style="margin-left: 10px;">🔄 Actualizar</button>
+            <button onclick="cargarDatos()">🔄 Actualizar</button>
             <div id="resultado" class="resultado"></div>
         </div>
         
         <div class="stats-grid" id="stats"></div>
         
-        <div class="content-grid">
-            <div class="card">
-                <div class="card-header">📋 Contenido analizado</div>
-                <div class="card-body" id="ultimosContenidos"></div>
-            </div>
-            <div class="card">
-                <div class="card-header">🎬 Videos generados</div>
-                <div class="card-body" id="videosGenerados"></div>
-            </div>
+        <div class="card">
+            <h3>📋 Últimos contenidos</h3>
+            <div id="ultimos"></div>
         </div>
     </div>
     
     <div id="detalleModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>📄 Detalle del contenido</h2>
+                <h2>📄 Detalle</h2>
                 <span class="modal-close" onclick="cerrarModal()">&times;</span>
             </div>
             <div id="modalBody"></div>
@@ -516,15 +465,15 @@ DASHBOARD_HTML = """
             
             const opciones = {
                 mensaje: url,
-                generar_video: document.getElementById('generarVideo').checked,
-                generar_infografia: document.getElementById('generarInfografia').checked,
-                generar_podcast: document.getElementById('generarPodcast').checked,
-                generar_presentacion: document.getElementById('generarPresentacion').checked
+                generar_infografia: document.getElementById('infografia').checked,
+                generar_podcast: document.getElementById('podcast').checked,
+                generar_presentacion: document.getElementById('presentacion').checked,
+                generar_video: document.getElementById('video').checked
             };
             
             const resultadoDiv = document.getElementById('resultado');
             resultadoDiv.style.display = 'block';
-            resultadoDiv.innerHTML = '<div class="loading">⏳ Procesando enlace y generando contenido...</div>';
+            resultadoDiv.innerHTML = '⏳ Procesando...';
             
             try {
                 const response = await fetch('/procesar', {
@@ -535,91 +484,49 @@ DASHBOARD_HTML = """
                 const data = await response.json();
                 
                 if (data.exito) {
-                    let html = `<div style="background: #d4edda; padding: 15px; border-radius: 8px;">`;
+                    let html = `<div style="background:#d4edda; padding:15px; border-radius:8px;">`;
                     html += `<strong>✅ Procesado correctamente</strong><br>`;
-                    html += `📁 <strong>Categoría:</strong> ${data.categoria}<br>`;
-                    html += `🔥 <strong>Viralidad:</strong> ${data.viralidad}/10<br>`;
-                    html += `📝 <strong>Resumen:</strong> ${data.resumen ? data.resumen.substring(0, 200) + '...' : 'No disponible'}<br>`;
-                    
-                    if (data.infografia_url) html += `🖼️ <strong>Infografía:</strong> <a href="${data.infografia_url}" target="_blank">Descargar</a><br>`;
-                    if (data.podcast_url) html += `🎙️ <strong>Podcast:</strong> <a href="${data.podcast_url}" target="_blank">Descargar</a><br>`;
-                    if (data.presentacion_url) html += `📊 <strong>Presentación:</strong> <a href="${data.presentacion_url}" target="_blank">Descargar</a><br>`;
-                    if (data.video_url) html += `🎬 <strong>Video:</strong> <a href="${data.video_url}" target="_blank">Ver/Descargar</a><br>`;
-                    
-                    html += `<button onclick="verDetalle('${data.url}')" style="margin-top: 10px;">📖 Ver detalle completo</button>`;
-                    html += `</div>`;
+                    html += `📁 Categoría: ${data.categoria}<br>`;
+                    html += `🔥 Viralidad: ${data.viralidad}/10<br>`;
+                    if (data.infografia_url) html += `🖼️ Infografía: <a href="${data.infografia_url}" target="_blank">Descargar</a><br>`;
+                    if (data.podcast_url) html += `🎙️ Podcast: <a href="${data.podcast_url}" target="_blank">Descargar</a><br>`;
+                    if (data.presentacion_url) html += `📊 Presentación: <a href="${data.presentacion_url}" target="_blank">Descargar</a><br>`;
+                    if (data.video_url) html += `🎬 Video: <a href="${data.video_url}" target="_blank">Descargar</a><br>`;
+                    html += `<button onclick="verDetalle('${data.url}')">📖 Ver detalle</button></div>`;
                     resultadoDiv.innerHTML = html;
                     cargarDatos();
                     document.getElementById('urlInput').value = '';
                 } else {
-                    resultadoDiv.innerHTML = `<div style="background: #f8d7da; padding: 15px; border-radius: 8px;"><strong>❌ Error:</strong> ${data.error || 'No se pudo procesar'}</div>`;
+                    resultadoDiv.innerHTML = `<div style="background:#f8d7da; padding:15px; border-radius:8px;">❌ Error: ${data.error}</div>`;
                 }
             } catch(e) {
-                resultadoDiv.innerHTML = `<div style="background: #f8d7da; padding: 15px; border-radius: 8px;"><strong>❌ Error:</strong> ${e.message}</div>`;
+                resultadoDiv.innerHTML = `<div style="background:#f8d7da; padding:15px; border-radius:8px;">❌ Error: ${e.message}</div>`;
             }
         }
         
         async function cargarDatos() {
-            await cargarEstadisticas();
-            await cargarUltimos();
-            await cargarVideos();
-        }
-        
-        async function cargarEstadisticas() {
             try {
-                const response = await fetch('/estadisticas');
-                const stats = await response.json();
+                const statsRes = await fetch('/estadisticas');
+                const stats = await statsRes.json();
                 document.getElementById('stats').innerHTML = `
-                    <div class="stat-card"><div class="stat-number">${stats.total || 0}</div><div class="stat-label">Total analizados</div></div>
-                    <div class="stat-card"><div class="stat-number">${stats.viral_promedio || 0}/10</div><div class="stat-label">Viralidad promedio</div></div>
-                    <div class="stat-card"><div class="stat-number">${Object.keys(stats.por_categoria || {}).length}</div><div class="stat-label">Categorías</div></div>
+                    <div class="stat-card"><div class="stat-number">${stats.total || 0}</div><div>Total</div></div>
+                    <div class="stat-card"><div class="stat-number">${stats.viral_promedio || 0}/10</div><div>Viralidad promedio</div></div>
                 `;
-            } catch(e) { console.error(e); }
-        }
-        
-        async function cargarUltimos() {
-            try {
-                const response = await fetch('/ultimos');
-                const data = await response.json();
-                if (data.ultimos && data.ultimos.length > 0) {
+                
+                const ultimosRes = await fetch('/ultimos');
+                const ultimos = await ultimosRes.json();
+                if (ultimos.ultimos && ultimos.ultimos.length > 0) {
                     let html = '';
-                    for (let item of data.ultimos) {
-                        let categoriaClass = `categoria-${item.categoria.replace(/ /g, '-')}`;
-                        html += `
-                            <div class="contenido-item" onclick="verDetalle('${item.url}')">
-                                <span class="categoria-badge ${categoriaClass}">${item.categoria}</span>
-                                <strong>${item.titulo ? item.titulo.substring(0, 80) : 'Sin título'}</strong>
-                                <div style="font-size: 11px; color: #999; margin-top: 5px;">📅 ${item.fecha ? item.fecha.substring(0, 19) : ''}</div>
-                            </div>
-                        `;
+                    for (let item of ultimos.ultimos) {
+                        html += `<div class="contenido-item" onclick="verDetalle('${item.url}')">
+                            <span class="categoria-badge ${item.categoria}">${item.categoria}</span>
+                            <strong>${item.titulo ? item.titulo.substring(0, 60) : 'Sin título'}</strong>
+                            <div style="font-size: 11px; color:#999;">${item.fecha ? item.fecha.substring(0, 19) : ''}</div>
+                        </div>`;
                     }
-                    document.getElementById('ultimosContenidos').innerHTML = html;
+                    document.getElementById('ultimos').innerHTML = html;
                 } else {
-                    document.getElementById('ultimosContenidos').innerHTML = '<div class="loading">No hay contenido procesado aún</div>';
-                }
-            } catch(e) { console.error(e); }
-        }
-        
-        async function cargarVideos() {
-            try {
-                const response = await fetch('/videos');
-                const data = await response.json();
-                if (data.videos && data.videos.length > 0) {
-                    let html = '';
-                    for (let item of data.videos) {
-                        html += `
-                            <div class="contenido-item">
-                                <strong>${item.titulo ? item.titulo.substring(0, 60) : 'Sin título'}</strong>
-                                <div style="font-size: 11px; color: #999;">📅 ${item.created_at ? item.created_at.substring(0, 19) : ''}</div>
-                                <div style="margin-top: 8px;">
-                                    <a href="${item.url}" target="_blank" style="color: #3498db;">🎬 Ver video</a>
-                                </div>
-                            </div>
-                        `;
-                    }
-                    document.getElementById('videosGenerados').innerHTML = html;
-                } else {
-                    document.getElementById('videosGenerados').innerHTML = '<div class="loading">No hay videos generados aún</div>';
+                    document.getElementById('ultimos').innerHTML = '<p>No hay contenido</p>';
                 }
             } catch(e) { console.error(e); }
         }
@@ -629,32 +536,21 @@ DASHBOARD_HTML = """
                 const response = await fetch('/detalle?url=' + encodeURIComponent(url));
                 const data = await response.json();
                 if (data.exito) {
-                    let html = `
-                        <h3>${data.titulo || 'Sin título'}</h3>
-                        <p><strong>URL:</strong> <a href="${data.url}" target="_blank">${data.url}</a></p>
-                        <p><strong>Categoría:</strong> <span class="categoria-badge categoria-${data.categoria.replace(/ /g, '-')}">${data.categoria}</span></p>
+                    let html = `<h3>${data.titulo || 'Sin título'}</h3>
+                        <p><strong>Categoría:</strong> ${data.categoria}</p>
                         <p><strong>Viralidad:</strong> ${data.viralidad}/10</p>
-                        <hr>
-                        <h4>📝 Resumen completo</h4>
-                        <p style="background: #f8f9fa; padding: 15px; border-radius: 8px;">${data.resumen || 'No disponible'}</p>
-                    `;
-                    
-                    if (data.infografia_url) html += `<p><strong>🖼️ Infografía:</strong> <a href="${data.infografia_url}" target="_blank">Descargar</a></p>`;
-                    if (data.podcast_url) html += `<p><strong>🎙️ Podcast:</strong> <a href="${data.podcast_url}" target="_blank">Descargar</a></p>`;
-                    if (data.presentacion_url) html += `<p><strong>📊 Presentación:</strong> <a href="${data.presentacion_url}" target="_blank">Descargar</a></p>`;
-                    if (data.video_url) html += `<p><strong>🎬 Video:</strong> <a href="${data.video_url}" target="_blank">Ver/Descargar</a></p>`;
-                    
+                        <p><strong>Resumen:</strong> ${data.resumen || 'No disponible'}</p>`;
+                    if (data.infografia_url) html += `<p><a href="${data.infografia_url}" target="_blank">📥 Infografía</a></p>`;
+                    if (data.podcast_url) html += `<p><a href="${data.podcast_url}" target="_blank">🎙️ Podcast</a></p>`;
+                    if (data.presentacion_url) html += `<p><a href="${data.presentacion_url}" target="_blank">📊 Presentación</a></p>`;
+                    if (data.video_url) html += `<p><a href="${data.video_url}" target="_blank">🎬 Video</a></p>`;
                     document.getElementById('modalBody').innerHTML = html;
                     document.getElementById('detalleModal').style.display = 'flex';
                 }
-            } catch(e) {
-                alert('Error: ' + e.message);
-            }
+            } catch(e) { alert('Error: ' + e.message); }
         }
         
-        function cerrarModal() {
-            document.getElementById('detalleModal').style.display = 'none';
-        }
+        function cerrarModal() { document.getElementById('detalleModal').style.display = 'none'; }
         
         cargarDatos();
         setInterval(cargarDatos, 30000);
@@ -663,6 +559,7 @@ DASHBOARD_HTML = """
 </html>
 """
 
+
 # ============================================
 # ENDPOINTS
 # ============================================
@@ -670,6 +567,7 @@ DASHBOARD_HTML = """
 @app.route('/')
 def home():
     return DASHBOARD_HTML
+
 
 @app.route('/webhook', methods=['GET'])
 def verify_webhook():
@@ -680,9 +578,11 @@ def verify_webhook():
         return challenge, 200
     return 'Forbidden', 403
 
+
 @app.route('/webhook', methods=['POST'])
 def receive_whatsapp():
     return jsonify({"status": "ok"}), 200
+
 
 @app.route('/procesar', methods=['POST'])
 def procesar():
@@ -704,59 +604,34 @@ def procesar():
     resultado = procesar_enlace_completo(enlaces[0], opciones)
     return jsonify(resultado), 200
 
+
 @app.route('/ultimos', methods=['GET'])
 def ultimos_contenidos():
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    try:
-        cursor.execute('SELECT id, fecha, url, titulo, categoria, subcategoria, viralidad FROM contenido ORDER BY id DESC LIMIT 20')
-        ultimos = [dict(row) for row in cursor.fetchall()]
-    except:
-        ultimos = []
+    cursor.execute('SELECT fecha, url, titulo, categoria FROM contenido ORDER BY id DESC LIMIT 20')
+    ultimos = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify({"ultimos": ultimos}), 200
 
+
 @app.route('/estadisticas', methods=['GET'])
 def estadisticas():
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db()
     cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT COUNT(*) FROM contenido")
-        total = cursor.fetchone()[0]
-        cursor.execute("SELECT categoria, COUNT(*) FROM contenido GROUP BY categoria")
-        por_categoria = dict(cursor.fetchall())
-        cursor.execute("SELECT AVG(viralidad) FROM contenido")
-        viral_promedio = cursor.fetchone()[0] or 0
-    except:
-        total = 0
-        por_categoria = {}
-        viral_promedio = 0
+    cursor.execute("SELECT COUNT(*) FROM contenido")
+    total = cursor.fetchone()[0]
+    cursor.execute("SELECT AVG(viralidad) FROM contenido")
+    viral_promedio = cursor.fetchone()[0] or 0
     conn.close()
-    return jsonify({
-        "total": total, 
-        "por_categoria": por_categoria,
-        "viral_promedio": round(viral_promedio, 1)
-    }), 200
+    return jsonify({"total": total, "viral_promedio": round(viral_promedio, 1)}), 200
 
-@app.route('/videos', methods=['GET'])
-def listar_videos():
-    archivos = []
-    if os.path.exists(VIDEOS_DIR):
-        for archivo in os.listdir(VIDEOS_DIR):
-            if archivo.endswith('.json') or archivo.endswith('.mp4'):
-                try:
-                    with open(os.path.join(VIDEOS_DIR, archivo), 'r') as f:
-                        contenido = json.load(f)
-                        archivos.append(contenido)
-                except:
-                    archivos.append({"titulo": archivo, "url": f"/descargar_video/{archivo}", "created_at": datetime.now().isoformat()})
-    return jsonify({"videos": archivos[-20:]}), 200
 
 @app.route('/detalle', methods=['GET'])
 def detalle_contenido():
     url = request.args.get('url', '')
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM contenido WHERE url = ? ORDER BY id DESC LIMIT 1', (url,))
@@ -766,9 +641,11 @@ def detalle_contenido():
         return jsonify({"exito": True, **dict(row)}), 200
     return jsonify({"exito": False, "error": "No encontrado"}), 404
 
+
 @app.route('/test', methods=['GET'])
 def test():
     return jsonify({"status": "ok", "message": "Sistema Construex funcionando"}), 200
+
 
 # ============================================
 # MAIN
@@ -778,20 +655,7 @@ if __name__ == '__main__':
     init_db()
     print("""
 ======================================================================
-         CONSTRUEX ECOSYSTEM - GENERADOR COMPLETO
-======================================================================
-
-FUNCIONALIDADES:
-   ✅ Clasificación de enlaces
-   ✅ Generación de resúmenes
-   ✅ Generación de infografías (PNG)
-   ✅ Generación de podcasts (MP3)
-   ✅ Generación de presentaciones (PPTX)
-   ✅ Generación de videos (MP4)
-   ✅ Dashboard visual interactivo
-
-ACCESO: http://localhost:10000/
-
+         CONSTRUEX ECOSYSTEM - FUNCIONANDO
 ======================================================================
 """)
     port = int(os.environ.get("PORT", 10000))
