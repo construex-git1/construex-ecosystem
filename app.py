@@ -1,6 +1,6 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN 6.0.0 (COMPLETA)
+         CONSTRUEX ECOSYSTEM - VERSIÓN ESTABLE 6.1.0
 ======================================================================
 """
 
@@ -19,7 +19,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # ============================================
-# CONFIGURACION BASICA (SIN IA PARA PRUEBAS)
+# CONFIGURACION BASICA
 # ============================================
 
 WHATSAPP_VERIFY_TOKEN = "construex_verify_2026"
@@ -45,6 +45,7 @@ url_cache = {}
 
 
 def init_db():
+    """Inicializa la base de datos (se ejecuta al arrancar)"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('''
@@ -65,6 +66,7 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
+    print("✅ Base de datos inicializada")
 
 
 def extraer_enlaces(texto):
@@ -269,7 +271,7 @@ def home():
     return jsonify({
         "servicio": "Construex Ecosystem",
         "estado": "activo",
-        "version": "6.0.0",
+        "version": "6.1.0",
         "funcionalidades": [
             "Procesamiento de enlaces",
             "Clasificacion manual",
@@ -343,7 +345,7 @@ if __name__ == '__main__':
     init_db()
     print("""
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN OPERATIVA
+         CONSTRUEX ECOSYSTEM - VERSIÓN ESTABLE 6.1.0
 ======================================================================
 """)
     port = int(os.environ.get("PORT", 10000))
