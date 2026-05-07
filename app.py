@@ -11,16 +11,9 @@ from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from dotenv import load_dotenv
-import google.generativeai as genai
 
 load_dotenv()
 app = Flask(__name__)
-
-# Configurar Gemini
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 
 
 def extraer_enlaces(texto):
@@ -49,52 +42,6 @@ def leer_contenido_url(url):
         return {"exito": False, "error": str(e)}
 
 
-def generar_contenido_viral_con_gemini(titulo, descripcion, categoria):
-    """Genera contenido viral usando Gemini"""
-    
-    prompt = f"""
-    Eres un experto en marketing viral. Crea contenido para Instagram basado en este artículo:
-    
-    TÍTULO: {titulo}
-    CATEGORÍA: {categoria}
-    CONTENIDO: {descripcion[:800]}
-    
-    Genera un formato viral que incluya:
-    
-    1. UN TÍTULO CLICKBAIT (máx 60 caracteres) que haga que la gente quiera leer
-    2. UN DATO SORPRENDENTE (el "hook" que hace que la gente comente)
-    3. 4 PUNTOS CLAVE con emojis (cada punto debe ser valioso y compartible)
-    4. UN CALL TO ACTION VIRAL (frase que invite a guardar/compartir)
-    5. 5 HASHTAGS TENDENCIA relacionados
-    
-    Responde SOLO con JSON en este formato:
-    {{
-        "titulo_viral": "...",
-        "dato_sorprendente": "...",
-        "puntos_clave": ["punto1", "punto2", "punto3", "punto4"],
-        "call_to_action": "...",
-        "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"]
-    }}
-    """
-    
-    try:
-        respuesta = gemini_model.generate_content(prompt)
-        texto = respuesta.text
-        if "```json" in texto:
-            texto = texto.split("```json")[1].split("```")[0]
-        import json
-        return json.loads(texto.strip())
-    except Exception as e:
-        print(f"Error Gemini: {e}")
-        return {
-            "titulo_viral": f"🔥 {titulo[:55]} 🔥",
-            "dato_sorprendente": descripcion[:150],
-            "puntos_clave": [descripcion[i:i+80] for i in range(0, 320, 80)][:4],
-            "call_to_action": "✨ Guarda este post para después y compártelo con alguien que debería saber esto ✨",
-            "hashtags": [f"#{categoria}", "#Construex", "#Educacion", "#Aprende", "#Viral"]
-        }
-
-
 def clasificar_manual(titulo, descripcion, dominio):
     texto = f"{titulo} {descripcion}".lower()
     if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "empleo", "edificio"]):
@@ -106,6 +53,44 @@ def clasificar_manual(titulo, descripcion, dominio):
     elif any(p in texto for p in ["salud", "medico", "bienestar"]):
         return "Salud"
     return "Automejora"
+
+
+def generar_contenido_viral(titulo, descripcion, categoria):
+    """Genera contenido viral a partir del artículo"""
+    
+    # Limitar textos
+    titulo_corto = titulo[:55] if len(titulo) > 55 else titulo
+    descripcion_corta = descripcion[:250] if len(descripcion) > 250 else descripcion
+    
+    # Dividir descripción en puntos
+    palabras = descripcion.split()
+    puntos = []
+    chunk_size = max(20, len(palabras) // 4)
+    for i in range(0, min(4 * chunk_size, len(palabras)), chunk_size):
+        punto = ' '.join(palabras[i:i+chunk_size])
+        if punto:
+            puntos.append(punto)
+    
+    while len(puntos) < 4:
+        puntos.append(f"Contenido relevante sobre {categoria}")
+    
+    # Emojis según categoría
+    emojis_categoria = {
+        "Construccion": "🏗️",
+        "Emprendimiento": "🚀",
+        "Construex University": "🎓",
+        "Salud": "💪",
+        "Automejora": "🌟"
+    }
+    emoji = emojis_categoria.get(categoria, "📚")
+    
+    return {
+        "titulo_viral": f" {titulo_corto} ",
+        "dato_sorprendente": descripcion_corta,
+        "puntos_clave": puntos[:4],
+        "call_to_action": "✨ Guarda este post para después y compártelo con alguien que debería saber esto ✨",
+        "hashtags": [f"#{categoria.replace(' ', '')}", "#Construex", "#Educacion", "#Aprende", "#Viral"]
+    }
 
 
 @app.route('/')
@@ -129,7 +114,7 @@ def home():
             .loading { text-align: center; padding: 30px; color: #aaa; display: none; }
             .preview { margin-top: 20px; display: none; }
             .carousel { display: flex; overflow-x: auto; gap: 20px; padding: 10px 0; scroll-snap-type: x mandatory; }
-            .slide { scroll-snap-align: start; min-width: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 24px; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.3); }
+            .slide { scroll-snap-align: start; min-width: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 24px; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.3); position: relative; }
             .slide-content { padding: 40px; color: white; }
             .slide-number { position: absolute; bottom: 20px; right: 25px; background: rgba(0,0,0,0.5); padding: 5px 12px; border-radius: 20px; font-size: 12px; }
             .titulo-viral { font-size: 32px; font-weight: bold; margin-bottom: 20px; line-height: 1.3; }
@@ -142,6 +127,7 @@ def home():
             .hashtag { background: rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 20px; font-size: 12px; }
             .controls { display: flex; justify-content: space-between; margin-top: 15px; gap: 10px; }
             .nav-btn { background: #333; padding: 10px; width: auto; font-size: 14px; margin: 0; }
+            .info-box { background: #2a2a3e; padding: 12px; border-radius: 12px; margin-top: 15px; color: #aaa; font-size: 12px; text-align: center; }
         </style>
     </head>
     <body>
@@ -163,7 +149,7 @@ def home():
                     <button class="nav-btn" id="nextBtn">Siguiente ▶</button>
                     <button class="nav-btn" id="downloadBtn">📥 Descargar Todo</button>
                 </div>
-                <div class="info-box" style="background: #2a2a3e; padding: 12px; border-radius: 12px; margin-top: 15px; color: #aaa; font-size: 12px; text-align: center;">
+                <div class="info-box">
                     💡 Múltiples diapositivas para carrusel de Instagram. Descarga cada una como PNG.
                 </div>
             </div>
@@ -198,14 +184,17 @@ def home():
                     document.getElementById('loading').style.display = 'none';
                     document.getElementById('preview').style.display = 'block';
                 } else {
-                    mostrarError(data.error);
+                    alert('❌ Error: ' + data.error);
+                    document.getElementById('loading').style.display = 'none';
                 }
             } catch(e) {
-                mostrarError('Error de conexión: ' + e.message);
+                alert('❌ Error de conexión: ' + e.message);
+                document.getElementById('loading').style.display = 'none';
             }
         }
         
         function generarCarousel(data) {
+            const viral = data.contenido_viral;
             const colores = {
                 "Construccion": "linear-gradient(135deg, #795548 0%, #3e2723 100%)",
                 "Emprendimiento": "linear-gradient(135deg, #FF9800 0%, #e65100 100%)",
@@ -215,49 +204,50 @@ def home():
             };
             const gradient = colores[data.categoria] || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
             
+            const puntosHtml = viral.puntos_clave.map((p, i) => {
+                const emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"];
+                return `
+                    <div class="punto">
+                        <div class="punto-emoji">${emojis[i] || "📌"}</div>
+                        <div class="punto-texto">${p}</div>
+                    </div>
+                `;
+            }).join('');
+            
             slides = [
-                // Slide 1 - Portada viral
                 `<div class="slide" style="background: ${gradient}; position: relative;">
                     <div class="slide-content" style="text-align: center;">
                         <div style="font-size: 80px; margin-bottom: 30px;">🔥</div>
-                        <div class="titulo-viral">${data.titulo_viral || data.titulo}</div>
+                        <div class="titulo-viral">${viral.titulo_viral}</div>
                         <div style="font-size: 18px; opacity: 0.9; margin-top: 30px;">👇 Desliza para descubrir 👇</div>
                     </div>
                     <div class="slide-number">1/5</div>
                 </div>`,
                 
-                // Slide 2 - Dato sorprendente
                 `<div class="slide" style="background: ${gradient}; position: relative;">
                     <div class="slide-content">
                         <div style="font-size: 24px; margin-bottom: 20px;">💥 DATO IMPACTANTE</div>
                         <div class="dato" style="background: rgba(0,0,0,0.3);">
-                            <div style="font-size: 20px; font-weight: bold;">"${data.dato_sorprendente}"</div>
+                            <div style="font-size: 20px; font-weight: bold;">"${viral.dato_sorprendente.substring(0, 200)}"</div>
                         </div>
                         <div style="margin-top: 30px; text-align: center;">🤯 ¿Lo sabías?</div>
                     </div>
                     <div class="slide-number">2/5</div>
                 </div>`,
                 
-                // Slide 3 - Puntos clave
                 `<div class="slide" style="background: ${gradient}; position: relative;">
                     <div class="slide-content">
                         <div style="font-size: 24px; margin-bottom: 20px;">📌 PUNTOS CLAVE</div>
-                        ${data.puntos_clave.map((p, i) => `
-                            <div class="punto">
-                                <div class="punto-emoji">${["1️⃣","2️⃣","3️⃣","4️⃣"][i] || "📌"}</div>
-                                <div class="punto-texto">${p}</div>
-                            </div>
-                        `).join('')}
+                        ${puntosHtml}
                     </div>
                     <div class="slide-number">3/5</div>
                 </div>`,
                 
-                // Slide 4 - Call to action
                 `<div class="slide" style="background: ${gradient}; position: relative;">
                     <div class="slide-content" style="text-align: center;">
                         <div style="font-size: 60px; margin-bottom: 20px;">✨</div>
                         <div class="cta" style="background: #FFD700; color: #1a1a2e;">
-                            ${data.call_to_action}
+                            ${viral.call_to_action}
                         </div>
                         <div style="margin-top: 30px;">💾 <strong>GUARDA ESTE POST</strong> 💾</div>
                         <div>👥 <strong>COMPARTE CON ALGUIEN</strong> 👥</div>
@@ -265,12 +255,11 @@ def home():
                     <div class="slide-number">4/5</div>
                 </div>`,
                 
-                // Slide 5 - Hashtags
                 `<div class="slide" style="background: ${gradient}; position: relative;">
                     <div class="slide-content" style="text-align: center;">
                         <div style="font-size: 24px; margin-bottom: 30px;">🏷️ SIGUE APRENDIENDO</div>
                         <div class="hashtags" style="justify-content: center;">
-                            ${data.hashtags.map(h => `<span class="hashtag">${h}</span>`).join('')}
+                            ${viral.hashtags.map(h => `<span class="hashtag">${h}</span>`).join('')}
                         </div>
                         <div style="margin-top: 40px;">
                             <div style="font-size: 20px;">🏗️ <strong>Construex</strong></div>
@@ -288,21 +277,35 @@ def home():
         }
         
         function cambiarSlide(direccion) {
+            const carousel = document.getElementById('carousel');
+            const slidesElements = carousel.querySelectorAll('.slide');
+            if (slidesElements.length === 0) return;
+            
             currentSlide += direccion;
-            if (currentSlide < 0) currentSlide = slides.length - 1;
-            if (currentSlide >= slides.length) currentSlide = 0;
-            actualizarVisibilidad();
+            if (currentSlide < 0) currentSlide = slidesElements.length - 1;
+            if (currentSlide >= slidesElements.length) currentSlide = 0;
+            
+            const slideWidth = slidesElements[0].offsetWidth;
+            carousel.scrollTo({ left: currentSlide * slideWidth, behavior: 'smooth' });
         }
         
         function actualizarVisibilidad() {
             const carousel = document.getElementById('carousel');
-            const slideWidth = carousel.querySelector('.slide')?.offsetWidth || 550;
-            carousel.scrollTo({ left: currentSlide * slideWidth, behavior: 'smooth' });
+            const slidesElements = carousel.querySelectorAll('.slide');
+            if (slidesElements.length > 0) {
+                const slideWidth = slidesElements[0].offsetWidth;
+                carousel.scrollTo({ left: currentSlide * slideWidth, behavior: 'smooth' });
+            }
         }
         
         async function descargarTodo() {
             const carousel = document.getElementById('carousel');
             const slidesElements = carousel.querySelectorAll('.slide');
+            
+            if (slidesElements.length === 0) {
+                alert('No hay imágenes para descargar');
+                return;
+            }
             
             for (let i = 0; i < slidesElements.length; i++) {
                 const canvas = await html2canvas(slidesElements[i], { scale: 2 });
@@ -313,11 +316,6 @@ def home():
                 await new Promise(r => setTimeout(r, 500));
             }
             alert(`✅ ${slidesElements.length} imágenes descargadas!`);
-        }
-        
-        function mostrarError(msg) {
-            document.getElementById('loading').style.display = 'none';
-            alert('❌ ' + msg);
         }
         </script>
     </body>
@@ -343,16 +341,7 @@ def procesar():
     
     categoria = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
     
-    if GEMINI_API_KEY:
-        contenido_viral = generar_contenido_viral_con_gemini(contenido['titulo'], contenido['descripcion'], categoria)
-    else:
-        contenido_viral = {
-            "titulo_viral": f"🔥 {contenido['titulo'][:55]} 🔥",
-            "dato_sorprendente": contenido['descripcion'][:150],
-            "puntos_clave": [contenido['descripcion'][i:i+80] for i in range(0, 320, 80)][:4],
-            "call_to_action": "✨ Guarda este post y compártelo ✨",
-            "hashtags": [f"#{categoria}", "#Construex", "#Educacion", "#Viral", "#Aprende"]
-        }
+    contenido_viral = generar_contenido_viral(contenido['titulo'], contenido['descripcion'], categoria)
     
     return jsonify({
         "exito": True,
