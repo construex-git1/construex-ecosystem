@@ -1,19 +1,32 @@
 import os
 import re
 import requests
-from flask import Flask, request, jsonify
+import time
+from flask import Flask, request, jsonify, send_from_directory
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+from dotenv import load_dotenv
 
+load_dotenv()
 app = Flask(__name__)
+
+# ============================================
+# CONFIGURACION
+# ============================================
+
+HIGGSFIELD_API_KEY = os.getenv("HIGGSFIELD_API_KEY", "72700186-4d90-427e-ab87-d01b13ea189b")
+IMAGENES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "imagenes_generadas")
+os.makedirs(IMAGENES_DIR, exist_ok=True)
+
 
 def extraer_enlaces(texto):
     patron_url = r'https?://[^\s<>"{}|\\^`\[\]]+'
     return re.findall(patron_url, texto)
 
+
 def leer_contenido_url(url):
     try:
-        response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+        response = requests.get(url, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
         soup = BeautifulSoup(response.text, 'html.parser')
         
         titulo = soup.find('title').text.strip() if soup.find('title') else "Sin título"
@@ -31,6 +44,7 @@ def leer_contenido_url(url):
     except Exception as e:
         return {"exito": False, "error": str(e)}
 
+
 def clasificar_manual(titulo, descripcion, dominio):
     texto = f"{titulo} {descripcion}".lower()
     if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "empleo"]):
@@ -43,45 +57,128 @@ def clasificar_manual(titulo, descripcion, dominio):
         return "Salud", 6
     return "Automejora", 5
 
+
+def generar_imagen(titulo, categoria):
+    """Genera una imagen usando Higgsfield"""
+    if not HIGGSFIELD_API_KEY:
+        print("⚠️ Higgsfield API key no configurada")
+        return None
+    
+    headers = {
+        "Authorization": f"Bearer {HIGGSFIELD_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    prompt = f"Imagen profesional para publicación en redes sociales sobre {categoria}: {titulo[:100]}. Estilo moderno y atractivo, colores corporativos."
+    
+    payload = {
+        "prompt": prompt,
+        "width": 1080,
+        "height": 1080,
+        "num_inference_steps": 25
+    }
+    
+    try:
+        print(f"   🖼️ Generando imagen...")
+        response = requests.post(
+            "https://api.higgsfield.ai/v1/images/generations",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            image_url = result.get("data", [{}])[0].get("url")
+            
+            if image_url:
+                timestamp = str(int(time.time()))
+                nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:30]).replace(' ', '_')
+                filename = f"imagen_{timestamp}_{nombre_limpio}.png"
+                filepath = os.path.join(IMAGENES_DIR, filename)
+                
+                img_response = requests.get(image_url)
+                with open(filepath, 'wb') as f:
+                    f.write(img_response.content)
+                
+                print(f"   ✅ Imagen guardada: {filepath}")
+                return f"/imagenes/{filename}"
+        else:
+            print(f"   ❌ Error: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"   ❌ Error: {e}")
+        return None
+
+
 @app.route('/')
 def home():
     return """
     <!DOCTYPE html>
     <html>
-    <head><title>Construex</title></head>
-    <body style="font-family:Arial; text-align:center; margin-top:50px;">
-        <h1>🏗️ Construex Ecosystem</h1>
-        <p>Ingresa un enlace y te diré su categoría</p>
-        <input type="text" id="urlInput" style="width:60%; padding:10px;">
-        <button onclick="procesar()" style="padding:10px 20px; background:#27ae60; color:white; border:none;">Analizar</button>
-        <div id="resultado" style="margin-top:20px;"></div>
+    <head>
+        <title>Construex - Generador de Imagen</title>
+        <style>
+            body { font-family: Arial; margin: 40px; background: #f0f2f5; text-align: center; }
+            .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 15px; }
+            input { width: 80%; padding: 12px; margin: 10px; border: 1px solid #ddd; border-radius: 5px; }
+            button { background: #27ae60; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; }
+            .resultado { margin-top: 20px; padding: 15px; background: #e8f4f8; border-radius: 10px; text-align: left; display: none; }
+            img { max-width: 100%; margin-top: 10px; border-radius: 10px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🏗️ Construex Ecosystem</h1>
+            <p>Ingresa un enlace para generar una imagen</p>
+            <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo">
+            <br>
+            <button onclick="procesar()">🚀 Generar Imagen</button>
+            <div id="resultado" class="resultado"></div>
+        </div>
         <script>
             async function procesar() {
                 const url = document.getElementById('urlInput').value;
-                if(!url) { alert('Ingresa URL'); return; }
-                document.getElementById('resultado').innerHTML = 'Procesando...';
-                const response = await fetch('/procesar', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({mensaje: url})
-                });
-                const data = await response.json();
-                document.getElementById('resultado').innerHTML = `
-                    <h3>✅ Resultado</h3>
-                    <p><strong>Categoría:</strong> ${data.categoria}</p>
-                    <p><strong>Viralidad:</strong> ${data.viralidad}/10</p>
-                    <p><strong>Título:</strong> ${data.titulo || 'No disponible'}</p>
-                `;
+                if (!url) { alert('Ingresa una URL'); return; }
+                
+                const resultadoDiv = document.getElementById('resultado');
+                resultadoDiv.style.display = 'block';
+                resultadoDiv.innerHTML = '<div class="loading">⏳ Procesando... Generando imagen (30-60 segundos)</div>';
+                
+                try {
+                    const response = await fetch('/procesar', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mensaje: url })
+                    });
+                    const data = await response.json();
+                    
+                    if (data.exito) {
+                        let html = `<strong>✅ ¡Imagen generada!</strong><br>`;
+                        html += `<p><strong>📁 Categoría:</strong> ${data.categoria}</p>`;
+                        html += `<p><strong>🔥 Viralidad:</strong> ${data.viralidad}/10</p>`;
+                        html += `<img src="${data.imagen_url}" alt="Imagen generada">`;
+                        html += `<br><a href="${data.imagen_url}" download>📥 Descargar Imagen</a>`;
+                        resultadoDiv.innerHTML = html;
+                        document.getElementById('urlInput').value = '';
+                    } else {
+                        resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error || 'No se pudo generar'}`;
+                    }
+                } catch(e) {
+                    resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${e.message}`;
+                }
             }
         </script>
     </body>
     </html>
     """
 
+
 @app.route('/procesar', methods=['POST'])
 def procesar():
     data = request.get_json()
     mensaje = data.get('mensaje', '')
+    
     if not mensaje:
         return jsonify({"error": "No hay mensaje"}), 400
     
@@ -95,14 +192,24 @@ def procesar():
     
     categoria, viralidad = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
     
+    imagen_url = generar_imagen(contenido['titulo'], categoria)
+    
     return jsonify({
-        "exito": True,
+        "exito": imagen_url is not None,
         "categoria": categoria,
         "viralidad": viralidad,
         "titulo": contenido['titulo'],
+        "imagen_url": imagen_url,
         "url": enlaces[0]
     })
 
+
+@app.route('/imagenes/<path:filename>')
+def descargar_imagen(filename):
+    return send_from_directory(IMAGENES_DIR, filename, as_attachment=True)
+
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    print(f"🚀 Servidor corriendo en puerto {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
