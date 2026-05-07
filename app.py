@@ -1,6 +1,6 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN ESTABLE 6.1.0
+         CONSTRUEX ECOSYSTEM - VERSIÓN ESTABLE 6.2.0
 ======================================================================
 """
 
@@ -46,27 +46,33 @@ url_cache = {}
 
 def init_db():
     """Inicializa la base de datos (se ejecuta al arrancar)"""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS contenido (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fecha TEXT,
-            url TEXT,
-            titulo TEXT,
-            dominio TEXT,
-            categoria TEXT,
-            subcategoria TEXT,
-            viralidad INTEGER,
-            resumen TEXT,
-            archivo_resumen TEXT,
-            archivo_higgsfield TEXT,
-            procesado BOOLEAN DEFAULT 0
-        )
-    ''')
-    conn.commit()
-    conn.close()
-    print("✅ Base de datos inicializada")
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS contenido (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha TEXT,
+                url TEXT,
+                titulo TEXT,
+                dominio TEXT,
+                categoria TEXT,
+                subcategoria TEXT,
+                viralidad INTEGER,
+                resumen TEXT,
+                archivo_resumen TEXT,
+                archivo_higgsfield TEXT,
+                procesado BOOLEAN DEFAULT 0
+            )
+        ''')
+        conn.commit()
+        print("✅ Base de datos inicializada correctamente")
+    except Exception as e:
+        print(f"❌ Error inicializando BD: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 
 def extraer_enlaces(texto):
@@ -181,29 +187,36 @@ def guardar_prompt_higgsfield(titulo, categoria, subcategoria, url):
 
 
 def guardar_en_db(url, titulo, dominio, categoria, subcategoria, viralidad, resumen, archivo_resumen, archivo_higgsfield):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO contenido (
-            fecha, url, titulo, dominio, categoria, subcategoria, viralidad,
-            resumen, archivo_resumen, archivo_higgsfield, procesado
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        datetime.now().isoformat(),
-        url,
-        titulo[:200],
-        dominio,
-        categoria,
-        subcategoria,
-        viralidad,
-        resumen[:500],
-        archivo_resumen,
-        archivo_higgsfield,
-        1
-    ))
-    conn.commit()
-    conn.close()
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO contenido (
+                fecha, url, titulo, dominio, categoria, subcategoria, viralidad,
+                resumen, archivo_resumen, archivo_higgsfield, procesado
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            datetime.now().isoformat(),
+            url,
+            titulo[:200],
+            dominio,
+            categoria,
+            subcategoria,
+            viralidad,
+            resumen[:500],
+            archivo_resumen,
+            archivo_higgsfield,
+            1
+        ))
+        conn.commit()
+        print("   ✅ Datos guardados en BD")
+    except Exception as e:
+        print(f"   ❌ Error guardando en BD: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 
 def procesar_enlace_completo(url):
@@ -271,7 +284,7 @@ def home():
     return jsonify({
         "servicio": "Construex Ecosystem",
         "estado": "activo",
-        "version": "6.1.0",
+        "version": "6.2.0",
         "funcionalidades": [
             "Procesamiento de enlaces",
             "Clasificacion manual",
@@ -298,15 +311,21 @@ def receive_whatsapp():
 
 @app.route('/procesar', methods=['POST'])
 def procesar():
-    data = request.get_json()
-    mensaje = data.get('mensaje', '')
-    if not mensaje:
-        return jsonify({"error": "No hay mensaje"}), 400
-    enlaces = extraer_enlaces(mensaje)
-    if not enlaces:
-        return jsonify({"error": "No se encontraron enlaces"}), 400
-    resultado = procesar_enlace_completo(enlaces[0])
-    return jsonify(resultado), 200
+    try:
+        data = request.get_json()
+        mensaje = data.get('mensaje', '')
+        if not mensaje:
+            return jsonify({"error": "No hay mensaje"}), 400
+        enlaces = extraer_enlaces(mensaje)
+        if not enlaces:
+            return jsonify({"error": "No se encontraron enlaces"}), 400
+        resultado = procesar_enlace_completo(enlaces[0])
+        return jsonify(resultado), 200
+    except Exception as e:
+        print(f"❌ Error en procesar: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/estructura', methods=['GET'])
@@ -321,31 +340,39 @@ def ver_estructura():
 @app.route('/higgsfield', methods=['GET'])
 def listar_higgsfield():
     archivos = os.listdir(HIGGSFIELD_DIR) if os.path.exists(HIGGSFIELD_DIR) else []
-    return jsonify({"prompts_higgsfield": archivos[-20:]})
+    return jsonify({"prompts_higgsfield": archivos[-20:]}), 200
 
 
 @app.route('/estadisticas', methods=['GET'])
 def estadisticas():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM contenido")
-    total = cursor.fetchone()[0]
-    cursor.execute("SELECT categoria, COUNT(*) FROM contenido GROUP BY categoria")
-    stats = dict(cursor.fetchall())
-    conn.close()
-    return jsonify({"total": total, "por_categoria": stats})
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM contenido")
+        total = cursor.fetchone()[0]
+        cursor.execute("SELECT categoria, COUNT(*) FROM contenido GROUP BY categoria")
+        stats = dict(cursor.fetchall())
+        conn.close()
+        return jsonify({"total": total, "por_categoria": stats}), 200
+    except Exception as e:
+        return jsonify({"total": 0, "por_categoria": {}, "error": str(e)}), 200
 
 
 @app.route('/test', methods=['GET'])
 def test():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "message": "Servidor funcionando"}), 200
 
+
+# ============================================
+# MAIN
+# ============================================
 
 if __name__ == '__main__':
+    # Inicializar BD antes de arrancar
     init_db()
     print("""
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN ESTABLE 6.1.0
+         CONSTRUEX ECOSYSTEM - VERSIÓN ESTABLE 6.2.0
 ======================================================================
 """)
     port = int(os.environ.get("PORT", 10000))
