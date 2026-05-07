@@ -1,6 +1,6 @@
 """
 ======================================================================
-                    CONSTRUEX ECOSYSTEM
+                    CONSTRUEX ECOSYSTEM - VERSIÓN PROFESIONAL
 ======================================================================
 """
 
@@ -82,6 +82,9 @@ def init_db():
             categoria TEXT,
             subcategoria TEXT,
             viralidad INTEGER,
+            confianza REAL,
+            razon TEXT,
+            sugerencia TEXT,
             resumen TEXT,
             archivo TEXT,
             procesado_para_higgsfield INTEGER DEFAULT 0
@@ -97,7 +100,7 @@ def init_db():
 def clasificar_con_ia(titulo, descripcion, dominio):
     """
     Clasifica el contenido usando Gemini IA para mayor precision
-    Retorna: categoria, subcategoria, viralidad
+    Retorna: categoria, subcategoria, viralidad, confianza, razon, sugerencia
     """
     
     prompt = f"""
@@ -128,7 +131,8 @@ def clasificar_con_ia(titulo, descripcion, dominio):
         "subcategoria": "nombre_de_la_subcategoria",
         "viralidad": 7,
         "confianza": 0.95,
-        "razon": "breve explicacion de por que esta categoria"
+        "razon": "breve explicacion de por que esta categoria",
+        "sugerencia": "video/podcast/infografia/hilo_twitter/curso"
     }}
     """
     
@@ -141,22 +145,66 @@ def clasificar_con_ia(titulo, descripcion, dominio):
         return resultado
     except Exception as e:
         print(f"Error en clasificacion IA: {e}")
-        # Fallback por palabras clave
-        return clasificar_fallback(titulo, descripcion)
+        return {
+            "categoria": "Automejora",
+            "subcategoria": "Crecimiento",
+            "viralidad": 5,
+            "confianza": 0.5,
+            "razon": "Error en IA, usando fallback",
+            "sugerencia": "articulo_blog"
+        }
 
-def clasificar_fallback(titulo, descripcion):
-    """Clasificacion de respaldo en caso de error de IA"""
-    texto = f"{titulo} {descripcion}".lower()
+# ============================================
+# FUNCION DE RESUMEN DE ÉLITE PARA NOTEBOOK LM
+# ============================================
+
+def generar_resumen_notebooklm(titulo, descripcion, dominio, categoria, subcategoria):
+    """
+    Genera un resumen de altísima calidad, optimizado para Notebook LM
+    """
+    prompt = f"""
+    Actúa como el Director de Conocimiento de Construex University.
+    Crea un Módulo de Aprendizaje Construex para nuestra base de conocimiento.
+
+    ---
+    TITULO: {titulo}
+    CATEGORIA: {categoria}
+    SUBCATEGORIA: {subcategoria}
+    FUENTE: {dominio}
+    CONTENIDO: {descripcion[:2000]}
+    ---
+
+    GENERA EL MÓDULO CON ESTA ESTRUCTURA EXACTA:
+
+    ## 📚 MÓDULO DE APRENDIZAJE CONSTRUEX
+
+    **Tema Central:** [Frase corta que resuma la esencia]
+
+    ### 1. Resumen Estratégico
+    [2-3 párrafos explicando el contexto, la solución y por qué es crucial]
+
+    ### 2. Ideas Clave
+    *   **Idea 1:** [Primera idea fundamental]
+    *   **Idea 2:** [Segunda idea fundamental]
+    *   **Idea 3:** [Tercera idea fundamental]
+
+    ### 3. Para Notebook LM (Formato Q&A)
+    > **Pregunta Clave 1:** [Pregunta importante]
+    > **Respuesta:** [Respuesta basada en el artículo]
+
+    > **Pregunta Clave 2:** [Segunda pregunta importante]
+    > **Respuesta:** [Respuesta basada en el artículo]
+
+    ### 4. Conclusión Construex
+    [1-2 frases invitando a la acción, mencionando cursos relacionados de {subcategoria}]
+    """
     
-    if any(p in texto for p in ["arquitect", "construc", "obra", "cemento", "edificio", "building"]):
-        return {"categoria": "Construccion", "subcategoria": "Proyectos", "viralidad": 7, "confianza": 0.7, "razon": "Contenido de arquitectura"}
-    if any(p in texto for p in ["negocio", "emprend", "empresa", "ventas"]):
-        return {"categoria": "Emprendimiento", "subcategoria": "Negocios", "viralidad": 7, "confianza": 0.7, "razon": "Contenido de negocios"}
-    if any(p in texto for p in ["curso", "aprender", "educacion", "certificacion"]):
-        return {"categoria": "Construex University", "subcategoria": "Cursos", "viralidad": 6, "confianza": 0.7, "razon": "Contenido educativo"}
-    if any(p in texto for p in ["salud", "medico", "bienestar", "dieta"]):
-        return {"categoria": "Salud", "subcategoria": "Bienestar", "viralidad": 6, "confianza": 0.7, "razon": "Contenido de salud"}
-    return {"categoria": "Automejora", "subcategoria": "Crecimiento", "viralidad": 5, "confianza": 0.5, "razon": "Contenido general"}
+    try:
+        respuesta = gemini_model.generate_content(prompt)
+        return respuesta.text
+    except Exception as e:
+        print(f"Error generando resumen: {e}")
+        return f"**Error:** No se pudo generar el módulo para '{titulo}'."
 
 # ============================================
 # FUNCIONES DE EXTRACCION DE CONTENIDO
@@ -203,86 +251,26 @@ def leer_contenido_url(url):
     
     return resultado
 
-def generar_resumen_notebooklm(titulo, descripcion, dominio, categoria, subcategoria):
-    prompt = f"""
-    Genera un resumen educativo estructurado para Notebook LM.
-
-    TITULO: {titulo}
-    CATEGORIA: {categoria}
-    SUBCATEGORIA: {subcategoria}
-    CONTENIDO: {descripcion[:1500]}
-
-    FORMATO EXACTO:
-    ============================================================
-    TITULO: {titulo}
-    CATEGORIA: {categoria}
-    SUBCATEGORIA: {subcategoria}
-    FUENTE: {dominio}
-    
-    RESUMEN EJECUTIVO:
-    [2-3 parrafos explicando el tema central y su importancia]
-    
-    PUNTOS CLAVE:
-    1. [primer punto importante]
-    2. [segundo punto importante]
-    3. [tercer punto importante]
-    4. [cuarto punto importante]
-    5. [quinto punto importante]
-    
-    APLICACION EN {categoria}:
-    [Como aplicar este conocimiento en el contexto de {categoria}]
-    
-    PREGUNTAS PARA REFLEXION:
-    1. [pregunta 1]
-    2. [pregunta 2]
-    ============================================================
-    """
-    
-    try:
-        respuesta = gemini_model.generate_content(prompt)
-        return respuesta.text
-    except:
-        return f"""
-============================================================
-TITULO: {titulo}
-CATEGORIA: {categoria}
-SUBCATEGORIA: {subcategoria}
-RESUMEN: Contenido de {dominio} sobre {categoria}
-============================================================
-"""
-
 def guardar_resumen(titulo, categoria, subcategoria, resumen, url):
     """Guarda el resumen en la carpeta correspondiente"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"{timestamp}_{nombre_limpio}.txt"
+    filename = f"{timestamp}_{nombre_limpio}.md"  # Ahora en Markdown!
     
-    # Guardar en subcarpeta especifica
     carpeta_base = CATEGORIAS_DIR.get(categoria, CATEGORIAS_DIR["Automejora"])
     carpeta_sub = os.path.join(carpeta_base, subcategoria)
     os.makedirs(carpeta_sub, exist_ok=True)
     filepath = os.path.join(carpeta_sub, filename)
     
-    contenido = f"""======================================================================
-                    CONTENIDO PARA NOTEBOOK LM
-======================================================================
-Fuente original: {url}
-Fecha: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-Categoria: {categoria}
-Subcategoria: {subcategoria}
-======================================================================
+    contenido = f"""---
+title: {titulo}
+source: {url}
+date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+category: {categoria}
+subcategory: {subcategoria}
+---
 
 {resumen}
-
-======================================================================
-INSTRUCCIONES:
-1. Copia este texto completo
-2. Pega como fuente en Notebook LM
-3. Genera el contenido educativo que necesites
-
-PARA HIGGSFIELD:
-Usa este resumen como base para generar videos educativos
-======================================================================
 """
     
     with open(filepath, 'w', encoding='utf-8') as f:
@@ -290,58 +278,24 @@ Usa este resumen como base para generar videos educativos
     
     return filepath
 
-def guardar_en_db(url, titulo, dominio, categoria, subcategoria, viralidad, resumen, archivo):
+def guardar_en_db(url, titulo, dominio, categoria, subcategoria, viralidad, confianza, razon, sugerencia, resumen, archivo):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO contenido (fecha, url, titulo, dominio, categoria, subcategoria, viralidad, resumen, archivo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (datetime.now().isoformat(), url, titulo[:200], dominio, categoria, subcategoria, viralidad, resumen[:500], archivo))
+        INSERT INTO contenido (fecha, url, titulo, dominio, categoria, subcategoria, viralidad, confianza, razon, sugerencia, resumen, archivo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (datetime.now().isoformat(), url, titulo[:200], dominio, categoria, subcategoria, viralidad, confianza, razon, sugerencia, resumen[:500], archivo))
     conn.commit()
     conn.close()
-
-def preparar_para_higgsfield(titulo, resumen, categoria, subcategoria):
-    """Genera prompt optimizado para Higgsfield"""
-    prompt = f"""
-    Genera un prompt detallado para crear un video educativo con Higgsfield.
-    
-    TEMA: {titulo}
-    CATEGORIA: {categoria}
-    SUBCATEGORIA: {subcategoria}
-    CONTENIDO: {resumen[:800]}
-    
-    Responde SOLO con JSON:
-    {{
-        "video_prompt": "descripcion detallada para generar el video",
-        "duracion": 20,
-        "aspect_ratio": "9:16",
-        "estilo": "educativo",
-        "texto_overlay": "frase llamativa para el video",
-        "recomendaciones": ["recomendacion1", "recomendacion2"]
-    }}
-    """
-    try:
-        respuesta = gemini_model.generate_content(prompt)
-        return respuesta.text
-    except:
-        return json.dumps({
-            "video_prompt": f"Video educativo sobre {categoria}: {titulo[:100]}",
-            "duracion": 20,
-            "aspect_ratio": "9:16",
-            "estilo": "educativo",
-            "texto_overlay": f"Aprende sobre {subcategoria}"
-        })
 
 def procesar_enlace_completo(url):
     """Procesa un enlace completo: extrae, clasifica, guarda"""
     print(f"📡 Procesando: {url[:80]}...")
     
-    # Extraer contenido
     contenido = leer_contenido_url(url)
     if not contenido['exito']:
         return {"error": "No se pudo acceder", "url": url}
     
-    # Clasificar con IA
     clasificacion = clasificar_con_ia(
         contenido['titulo'],
         contenido['descripcion'],
@@ -351,10 +305,12 @@ def procesar_enlace_completo(url):
     categoria = clasificacion['categoria']
     subcategoria = clasificacion['subcategoria']
     viralidad = clasificacion['viralidad']
+    confianza = clasificacion.get('confianza', 0.7)
+    razon = clasificacion.get('razon', '')
+    sugerencia = clasificacion.get('sugerencia', 'articulo_blog')
     
-    print(f"   📁 {categoria} > {subcategoria} (confianza: {clasificacion.get('confianza', 0):.0%})")
+    print(f"   📁 {categoria} > {subcategoria} (confianza: {confianza:.0%})")
     
-    # Generar resumen
     resumen = generar_resumen_notebooklm(
         contenido['titulo'],
         contenido['descripcion'],
@@ -363,7 +319,6 @@ def procesar_enlace_completo(url):
         subcategoria
     )
     
-    # Guardar archivo
     archivo = guardar_resumen(
         contenido['titulo'],
         categoria,
@@ -372,7 +327,6 @@ def procesar_enlace_completo(url):
         url
     )
     
-    # Guardar en BD
     guardar_en_db(
         url,
         contenido['titulo'],
@@ -380,16 +334,11 @@ def procesar_enlace_completo(url):
         categoria,
         subcategoria,
         viralidad,
+        confianza,
+        razon,
+        sugerencia,
         resumen,
         archivo
-    )
-    
-    # Preparar prompt para Higgsfield
-    higgsfield_prompt = preparar_para_higgsfield(
-        contenido['titulo'],
-        resumen,
-        categoria,
-        subcategoria
     )
     
     return {
@@ -399,8 +348,9 @@ def procesar_enlace_completo(url):
         "categoria": categoria,
         "subcategoria": subcategoria,
         "viralidad": viralidad,
+        "confianza": confianza,
         "archivo": archivo,
-        "higgsfield_prompt": json.loads(higgsfield_prompt) if isinstance(higgsfield_prompt, str) else higgsfield_prompt
+        "sugerencia": sugerencia
     }
 
 # ============================================
@@ -445,7 +395,7 @@ def receive_whatsapp():
                     for enlace in enlaces:
                         resultado = procesar_enlace_completo(enlace)
                         if resultado.get('exito'):
-                            resp = f"✅ Procesado: {resultado['categoria']} > {resultado['subcategoria']}. Resumen guardado."
+                            resp = f"✅ Analizado: {resultado['categoria']} > {resultado['subcategoria']}. Resumen guardado. Sugerencia: {resultado.get('sugerencia', 'leer mas')}"
                             enviar_whatsapp(from_number, resp)
         return jsonify({"status": "ok"}), 200
     except Exception as e:
@@ -466,35 +416,82 @@ def procesar():
 
 @app.route('/estructura', methods=['GET'])
 def ver_estructura():
-    """Muestra la estructura de carpetas creada"""
     estructura = {}
     for cat, path in CATEGORIAS_DIR.items():
         if os.path.exists(path):
             estructura[cat] = os.listdir(path) if os.listdir(path) else []
     return jsonify({"estructura": estructura}), 200
 
+@app.route('/admin/dashboard', methods=['GET'])
+def admin_dashboard():
+    """Dashboard interno para monitorear el sistema"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM contenido")
+    total_analizados = cursor.fetchone()[0]
+    cursor.execute("SELECT categoria, COUNT(*) FROM contenido GROUP BY categoria")
+    stats_cat = dict(cursor.fetchall())
+    cursor.execute("SELECT fecha, url, categoria FROM contenido ORDER BY id DESC LIMIT 10")
+    ultimos = cursor.fetchall()
+    conn.close()
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Construex - Admin Dashboard</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+            h1 {{ color: #2c3e50; }}
+            .stats {{ background: #e8f4f8; padding: 15px; border-radius: 8px; margin-bottom: 20px; }}
+            table {{ border-collapse: collapse; width: 100%; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #3498db; color: white; }}
+        </style>
+    </head>
+    <body>
+        <h1>📊 Dashboard del Ecosistema Construex</h1>
+        <div class="stats">
+            <strong>Total de Contenido Analizado:</strong> {total_analizados}
+        </div>
+        <h2>📁 Estadísticas por Categoría</h2>
+        <ul>
+            {''.join([f'<li><strong>{cat}:</strong> {count}</li>' for cat, count in stats_cat.items()])}
+        </ul>
+        <h2>📋 Últimos 10 Análisis</h2>
+        <table>
+            <tr><th>Fecha</th><th>URL</th><th>Categoría</th></tr>
+            {''.join([f'<tr><td>{fecha[:19]}</td><td><a href="{url}" target="_blank">{url[:50]}...</a></td><td>{cat}</td></tr>' for fecha, url, cat in ultimos])}
+        </table>
+    </body>
+    </html>
+    """
+    return html
+
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({
         "servicio": "Construex Ecosystem",
-        "clasificacion": "IA precisa",
+        "version": "2.0.0",
+        "clasificacion": "IA precisa con confianza",
         "carpetas": list(CATEGORIAS_DIR.keys()),
         "endpoints": {
             "webhook": "/webhook",
             "procesar": "/procesar (POST)",
-            "estructura": "/estructura"
+            "estructura": "/estructura",
+            "admin": "/admin/dashboard"
         }
     })
 
 # ============================================
-# MAIN - CORREGIDO PARA RENDER
+# MAIN
 # ============================================
 
 if __name__ == '__main__':
     init_db()
     print("""
 ======================================================================
-         CONSTRUEX ECOSYSTEM - CLASIFICACION PRECISA CON IA
+         CONSTRUEX ECOSYSTEM - VERSIÓN PROFESIONAL
 ======================================================================
 
 ESTRUCTURA DE CARPETAS GENERADA:
@@ -506,26 +503,10 @@ ESTRUCTURA DE CARPETAS GENERADA:
 
     print("""
 ======================================================================
-Servidor corriendo...
-======================================================================
-""")
-if __name__ == '__main__':
-    init_db()
-    print("""
-======================================================================
-         CONSTRUEX ECOSYSTEM - CLASIFICACION PRECISA CON IA
-======================================================================
-
-ESTRUCTURA DE CARPETAS GENERADA:
-""")
-    for cat, path in CATEGORIAS_DIR.items():
-        print(f"   📁 {cat}")
-        for subcat in SUBCARPETAS.get(cat, []):
-            print(f"      📂 {subcat}")
-
-    print("""
-======================================================================
-Servidor corriendo...
+✅ Servidor corriendo...
+✅ Dashboard admin: /admin/dashboard
+✅ Resúmenes en formato Markdown (.md)
+✅ Clasificación con nivel de confianza
 ======================================================================
 """)
     port = int(os.environ.get("PORT", 5000))
