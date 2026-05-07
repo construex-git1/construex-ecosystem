@@ -1,36 +1,19 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - CON CLOUDINARY
+         CONSTRUEX ECOSYSTEM - IMÁGENES CON CANVAS
 ======================================================================
 """
 
 import os
 import re
 import requests
-import cloudinary
-import cloudinary.uploader
-from cloudinary.utils import cloudinary_url
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 load_dotenv()
 app = Flask(__name__)
-
-# ============================================
-# CONFIGURACION DE CLOUDINARY
-# ============================================
-
-cloudinary.config(
-    cloud_name="dcjggdlla",
-    api_key="519915375639214",
-    api_secret="0HCTwBlLe1wPHFsyLp02N_k8jHo"
-)
-
-# Directorios
-IMAGENES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "imagenes_generadas")
-os.makedirs(IMAGENES_DIR, exist_ok=True)
 
 
 def extraer_enlaces(texto):
@@ -61,64 +44,15 @@ def leer_contenido_url(url):
 
 def clasificar_manual(titulo, descripcion, dominio):
     texto = f"{titulo} {descripcion}".lower()
-    if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "empleo", "edificio", "canal"]):
-        return "Construccion", 8, "#795548"
-    elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas", "inversion"]):
-        return "Emprendimiento", 7, "#FF9800"
-    elif any(p in texto for p in ["curso", "aprender", "educacion", "certificacion"]):
-        return "Construex University", 6, "#2196F3"
-    elif any(p in texto for p in ["salud", "medico", "bienestar", "dieta"]):
-        return "Salud", 6, "#4CAF50"
-    return "Automejora", 5, "#9C27B0"
-
-
-def generar_imagen_cloudinary(titulo, resumen, categoria, color):
-    """Genera imagen profesional con Cloudinary"""
-    
-    # Limpiar texto para URL
-    titulo_clean = titulo[:60].replace(' ', '%20').replace('&', '%26')
-    resumen_clean = resumen[:200].replace(' ', '%20').replace('&', '%26')
-    
-    # Construir URL de Cloudinary con texto superpuesto
-    # Fondo con gradiente según categoría
-    base_url = "https://res.cloudinary.com/dcjggdlla/image/upload/v1/"
-    
-    # Crear overlay de texto para el título
-    overlay_title = f"l_text:Arial_60_bold:{titulo_clean},g_north_west,x_50,y_150,co_rgb:FFFFFF"
-    
-    # Overlay para el resumen
-    overlay_summary = f"l_text:Arial_30:{resumen_clean},g_north_west,x_50,y_300,co_rgb:FFFFFF,co_alpha:80"
-    
-    # Overlay para la categoría
-    overlay_category = f"l_text:Arial_40_bold:{categoria.upper()},g_north_west,x_50,y_80,co_rgb:FFD700"
-    
-    # Overlay para el CTA
-    overlay_cta = f"l_text:Arial_30:✨%20Aprende%20más%20en%20Construex%20✨,g_south_west,x_50,y_80,co_rgb:FFD700"
-    
-    # Overlay para hashtags
-    overlay_hashtags = f"l_text:Arial_25:%23{categoria}%20%23Construex%20%23Educacion, g_south_west,x_50,y_40,co_rgb:AAAAAA"
-    
-    # Construir URL final
-    url = f"{base_url}w_1080,h_1080,c_fill,g_center/bo_5px_solid_rgb:{color[1:]}/{overlay_category}/{overlay_title}/{overlay_summary}/{overlay_cta}/{overlay_hashtags}/bg_{color[1:]}/v1/construex_template"
-    
-    # Descargar la imagen generada
-    try:
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            import time
-            timestamp = str(int(time.time()))
-            nombre = re.sub(r'[^\w\s-]', '', titulo[:30]).replace(' ', '_')
-            filename = f"instagram_{timestamp}_{nombre}.jpg"
-            filepath = os.path.join(IMAGENES_DIR, filename)
-            
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
-            
-            return f"/imagenes/{filename}"
-    except Exception as e:
-        print(f"Error generando imagen: {e}")
-    
-    return None
+    if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "empleo", "edificio"]):
+        return "Construccion", 8
+    elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas"]):
+        return "Emprendimiento", 7
+    elif any(p in texto for p in ["curso", "aprender", "educacion"]):
+        return "Construex University", 6
+    elif any(p in texto for p in ["salud", "medico", "bienestar"]):
+        return "Salud", 6
+    return "Automejora", 5
 
 
 @app.route('/')
@@ -130,11 +64,12 @@ def home():
         <title>Construex - Generador de Imágenes</title>
         <style>
             body { font-family: Arial; margin: 40px; background: #f0f2f5; text-align: center; }
-            .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 15px; }
+            .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 15px; }
             input { width: 80%; padding: 12px; margin: 10px; border: 1px solid #ddd; border-radius: 5px; }
             button { background: #27ae60; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
             .resultado { margin-top: 20px; padding: 15px; background: #e8f4f8; border-radius: 10px; text-align: left; display: none; }
-            img { max-width: 100%; margin-top: 10px; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+            canvas { max-width: 100%; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); margin-top: 20px; }
+            .descargar { background: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px; display: inline-block; text-decoration: none; }
         </style>
     </head>
     <body>
@@ -147,44 +82,164 @@ def home():
             <button onclick="procesar()">🚀 Generar Imagen</button>
             <div id="resultado" class="resultado"></div>
         </div>
+        
+        <canvas id="imageCanvas" style="display:none;"></canvas>
+        
         <script>
-            async function procesar() {
-                const url = document.getElementById('urlInput').value;
-                if (!url) { alert('Ingresa una URL'); return; }
+        const colores = {
+            "Construccion": "#795548",
+            "Emprendimiento": "#FF9800",
+            "Construex University": "#2196F3",
+            "Salud": "#4CAF50",
+            "Automejora": "#9C27B0"
+        };
+        
+        async function procesar() {
+            const url = document.getElementById('urlInput').value;
+            if (!url) { alert('Ingresa una URL'); return; }
+            
+            const resultadoDiv = document.getElementById('resultado');
+            resultadoDiv.style.display = 'block';
+            resultadoDiv.innerHTML = '<div>⏳ Procesando enlace...</div>';
+            
+            try {
+                const response = await fetch('/procesar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mensaje: url })
+                });
+                const data = await response.json();
                 
-                const resultadoDiv = document.getElementById('resultado');
-                resultadoDiv.style.display = 'block';
-                resultadoDiv.innerHTML = '<div>⏳ Procesando... Generando imagen profesional</div>';
-                
-                try {
-                    const response = await fetch('/procesar', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mensaje: url })
-                    });
-                    const data = await response.json();
+                if (data.exito) {
+                    let html = `<div style="background:#d4edda; padding:10px; border-radius:5px; margin-bottom:15px;">`;
+                    html += `<strong>📁 Categoría:</strong> ${data.categoria}<br>`;
+                    html += `<strong>🔥 Viralidad:</strong> ${data.viralidad}/10<br>`;
+                    html += `<strong>📝 Título:</strong> ${data.titulo}</div>`;
+                    resultadoDiv.innerHTML = html;
                     
-                    if (data.exito) {
-                        let html = `<div style="background:#d4edda; padding:10px; border-radius:5px; margin-bottom:15px;">`;
-                        html += `<strong>📁 Categoría:</strong> ${data.categoria}<br>`;
-                        html += `<strong>🔥 Viralidad:</strong> ${data.viralidad}/10<br>`;
-                        html += `<strong>📝 Título:</strong> ${data.titulo}</div>`;
-                        
-                        if (data.imagen_url) {
-                            html += `<strong>🖼️ Imagen lista para Instagram:</strong><br>`;
-                            html += `<img src="${data.imagen_url}" alt="Imagen para Instagram">`;
-                            html += `<br><a href="${data.imagen_url}" download style="display: inline-block; margin-top: 10px; background: #3498db; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none;">📥 Descargar Imagen</a>`;
-                        }
-                        
-                        resultadoDiv.innerHTML = html;
-                        document.getElementById('urlInput').value = '';
-                    } else {
-                        resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error}`;
-                    }
-                } catch(e) {
-                    resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${e.message}`;
+                    // Generar la imagen
+                    generarImagen(data);
+                } else {
+                    resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error}`;
+                }
+            } catch(e) {
+                resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${e.message}`;
+            }
+        }
+        
+        function generarImagen(data) {
+            const canvas = document.getElementById('imageCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = 1080;
+            canvas.height = 1080;
+            canvas.style.display = 'block';
+            
+            const color = colores[data.categoria] || "#3498db";
+            
+            // Fondo con degradado
+            const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            grad.addColorStop(0, color);
+            grad.addColorStop(1, '#2c3e50');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Marco decorativo
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+            ctx.lineWidth = 5;
+            ctx.strokeRect(40, 40, canvas.width - 80, canvas.height - 80);
+            
+            // Logo texto
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 36px "Segoe UI"';
+            ctx.textAlign = 'center';
+            ctx.fillText('🏗️ CONSTRUEX ECOSYSTEM', canvas.width/2, 100);
+            
+            // Categoría
+            ctx.font = 'bold 28px "Segoe UI"';
+            ctx.fillStyle = '#FFD700';
+            ctx.fillText(`📁 ${data.categoria.toUpperCase()}`, canvas.width/2, 170);
+            
+            // Línea decorativa
+            ctx.beginPath();
+            ctx.moveTo(canvas.width/3, 200);
+            ctx.lineTo(canvas.width*2/3, 200);
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Título (con wrap)
+            ctx.font = 'bold 48px "Segoe UI"';
+            ctx.fillStyle = '#ffffff';
+            const tituloLines = wrapText(ctx, data.titulo, canvas.width - 120, 48);
+            let y = 270;
+            for(let line of tituloLines.slice(0, 3)) {
+                ctx.fillText(line, canvas.width/2, y);
+                y += 65;
+            }
+            
+            // Línea decorativa
+            ctx.beginPath();
+            ctx.moveTo(canvas.width/3, y + 10);
+            ctx.lineTo(canvas.width*2/3, y + 10);
+            ctx.stroke();
+            y += 40;
+            
+            // Resumen
+            ctx.font = '26px "Segoe UI"';
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            const resumenLines = wrapText(ctx, data.resumen, canvas.width - 120, 26);
+            for(let line of resumenLines.slice(0, 8)) {
+                ctx.fillText(line, canvas.width/2, y);
+                y += 40;
+            }
+            
+            // Call to Action
+            y = canvas.height - 120;
+            ctx.font = 'bold 28px "Segoe UI"';
+            ctx.fillStyle = '#FFD700';
+            ctx.fillText('✨ Aprende más en Construex ✨', canvas.width/2, y);
+            
+            // Hashtags
+            ctx.font = '22px "Segoe UI"';
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            ctx.fillText(`#${data.categoria.replace(' ', '')} #Construex #Educacion #Aprende`, canvas.width/2, y + 50);
+            
+            // Mostrar botón de descarga
+            const resultadoDiv = document.getElementById('resultado');
+            resultadoDiv.innerHTML += `<div style="margin-top:15px; text-align:center;">
+                <button onclick="descargarImagen()" class="descargar">📥 Descargar Imagen (PNG)</button>
+                <p style="font-size:12px; color:#666; margin-top:10px;">💡 Imagen lista para Instagram (1080x1080)</p>
+            </div>`;
+        }
+        
+        function wrapText(ctx, text, maxWidth, fontSize) {
+            ctx.font = `${fontSize}px "Segoe UI"`;
+            const words = text.split('');
+            const lines = [];
+            let currentLine = '';
+            
+            for(let i = 0; i < words.length; i++) {
+                const testLine = currentLine + words[i];
+                const metrics = ctx.measureText(testLine);
+                if(metrics.width > maxWidth && currentLine.length > 0) {
+                    lines.push(currentLine);
+                    currentLine = words[i];
+                } else {
+                    currentLine = testLine;
                 }
             }
+            lines.push(currentLine);
+            return lines;
+        }
+        
+        function descargarImagen() {
+            const canvas = document.getElementById('imageCanvas');
+            const link = document.createElement('a');
+            link.download = `construex_${Date.now()}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        }
         </script>
     </body>
     </html>
@@ -207,26 +262,15 @@ def procesar():
     if not contenido['exito']:
         return jsonify({"error": contenido.get('error', 'No se pudo acceder')}), 400
     
-    categoria, viralidad, color = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
-    
-    # Limitar resumen para la imagen
-    resumen = contenido['descripcion'][:250]
-    
-    imagen_url = generar_imagen_cloudinary(contenido['titulo'], resumen, categoria, color)
+    categoria, viralidad = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
     
     return jsonify({
         "exito": True,
         "categoria": categoria,
         "viralidad": viralidad,
         "titulo": contenido['titulo'],
-        "resumen": resumen,
-        "imagen_url": imagen_url
+        "resumen": contenido['descripcion'][:350]
     })
-
-
-@app.route('/imagenes/<path:filename>')
-def descargar_imagen(filename):
-    return send_from_directory(IMAGENES_DIR, filename, as_attachment=True)
 
 
 @app.route('/test', methods=['GET'])
