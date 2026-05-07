@@ -1,6 +1,7 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN CON ARCHIVOS DESCARGABLES
+         CONSTRUEX ECOSYSTEM - VERSIÓN AUTOSUFICIENTE
+         Genera imágenes y videos automáticamente desde cualquier enlace
 ======================================================================
 """
 
@@ -9,10 +10,12 @@ import re
 import json
 import requests
 import sqlite3
+import time
 from datetime import datetime
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -23,9 +26,20 @@ app = Flask(__name__)
 # ============================================
 
 WHATSAPP_VERIFY_TOKEN = "construex_verify_2026"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+HIGGSFIELD_API_KEY = os.getenv("HIGGSFIELD_API_KEY", "72700186-4d90-427e-ab87-d01b13ea189b")
+
+# Configurar Gemini
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    gemini_model = None
 
 # Directorios
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+IMAGENES_DIR = os.path.join(BASE_DIR, "imagenes_generadas")
+VIDEOS_DIR = os.path.join(BASE_DIR, "videos_generados")
 CATEGORIAS_DIR = {
     "Salud": os.path.join(BASE_DIR, "contenido", "Salud"),
     "Emprendimiento": os.path.join(BASE_DIR, "contenido", "Emprendimiento"),
@@ -36,21 +50,8 @@ CATEGORIAS_DIR = {
 
 for carpeta in CATEGORIAS_DIR.values():
     os.makedirs(carpeta, exist_ok=True)
-
-HIGGSFIELD_DIR = os.path.join(BASE_DIR, "higgsfield_prompts")
-os.makedirs(HIGGSFIELD_DIR, exist_ok=True)
-
-VIDEOS_DIR = os.path.join(BASE_DIR, "videos_generados")
-os.makedirs(VIDEOS_DIR, exist_ok=True)
-
-IMAGENES_DIR = os.path.join(BASE_DIR, "imagenes_generadas")
 os.makedirs(IMAGENES_DIR, exist_ok=True)
-
-AUDIOS_DIR = os.path.join(BASE_DIR, "audios_generados")
-os.makedirs(AUDIOS_DIR, exist_ok=True)
-
-PRESENTACIONES_DIR = os.path.join(BASE_DIR, "presentaciones_generadas")
-os.makedirs(PRESENTACIONES_DIR, exist_ok=True)
+os.makedirs(VIDEOS_DIR, exist_ok=True)
 
 DB_FILE = os.path.join(BASE_DIR, "construex.db")
 url_cache = {}
@@ -67,16 +68,10 @@ def get_db():
             titulo TEXT,
             dominio TEXT,
             categoria TEXT,
-            subcategoria TEXT,
             viralidad INTEGER,
             resumen TEXT,
-            archivo_resumen TEXT,
-            archivo_higgsfield TEXT,
-            infografia_url TEXT,
-            podcast_url TEXT,
-            presentacion_url TEXT,
+            imagen_url TEXT,
             video_url TEXT,
-            motor_ia TEXT,
             procesado BOOLEAN DEFAULT 0
         )
     ''')
@@ -133,608 +128,288 @@ def leer_contenido_url(url):
     return resultado
 
 
+def clasificar_con_gemini(titulo, descripcion, dominio):
+    """Clasifica usando Gemini o fallback manual"""
+    if not gemini_model:
+        return clasificar_manual(titulo, descripcion, dominio)
+    
+    prompt = f"""
+    Clasifica este contenido en UNA de estas 5 categorías:
+    Salud, Emprendimiento, Automejora, Construccion, Construex University
+
+    TITULO: {titulo}
+    DOMINIO: {dominio}
+    DESCRIPCION: {descripcion[:500]}
+
+    Responde SOLO con el nombre de la categoría.
+    """
+    
+    try:
+        respuesta = gemini_model.generate_content(prompt)
+        categoria = respuesta.text.strip()
+        
+        categorias_validas = ["Salud", "Emprendimiento", "Automejora", "Construccion", "Construex University"]
+        for cat in categorias_validas:
+            if cat in categoria:
+                return cat, 7
+        return "Automejora", 5
+    except:
+        return clasificar_manual(titulo, descripcion, dominio)
+
+
 def clasificar_manual(titulo, descripcion, dominio):
     texto = f"{titulo} {descripcion}".lower()
-    if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "empleo", "vacante", "edificio"]):
-        return "Construccion", "Proyectos", 8
-    elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas", "inversion", "startup"]):
-        return "Emprendimiento", "Negocios", 7
-    elif any(p in texto for p in ["curso", "aprender", "educacion", "certificacion", "taller"]):
-        return "Construex University", "Cursos", 6
-    elif any(p in texto for p in ["salud", "medico", "bienestar", "dieta", "ejercicio", "hospital"]):
-        return "Salud", "Bienestar", 6
-    return "Automejora", "Crecimiento", 5
+    if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "empleo"]):
+        return "Construccion", 8
+    elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas"]):
+        return "Emprendimiento", 7
+    elif any(p in texto for p in ["curso", "aprender", "educacion"]):
+        return "Construex University", 6
+    elif any(p in texto for p in ["salud", "medico", "bienestar"]):
+        return "Salud", 6
+    return "Automejora", 5
 
 
-def guardar_resumen(titulo, categoria, subcategoria, resumen, url):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"{timestamp}_{nombre_limpio}.md"
-
-    carpeta_base = CATEGORIAS_DIR.get(categoria, CATEGORIAS_DIR["Automejora"])
-    carpeta_sub = os.path.join(carpeta_base, subcategoria)
-    os.makedirs(carpeta_sub, exist_ok=True)
-    filepath = os.path.join(carpeta_sub, filename)
-
-    contenido = f"""---
-title: {titulo}
-source: {url}
-date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-category: {categoria}
-subcategory: {subcategoria}
----
-
-{resumen}
-"""
-
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(contenido)
-
-    return filepath
+def generar_resumen_con_gemini(titulo, descripcion):
+    """Genera resumen usando Gemini"""
+    if not gemini_model:
+        return f"Resumen: {descripcion[:500]}"
+    
+    prompt = f"""
+    Genera un resumen ejecutivo de 3-4 líneas sobre:
+    TITULO: {titulo}
+    CONTENIDO: {descripcion[:800]}
+    """
+    
+    try:
+        respuesta = gemini_model.generate_content(prompt)
+        return respuesta.text
+    except:
+        return descripcion[:500]
 
 
-def guardar_prompt_higgsfield(titulo, categoria, subcategoria, prompt_data, url):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"{timestamp}_{nombre_limpio}.json"
-    filepath = os.path.join(HIGGSFIELD_DIR, filename)
-
-    contenido = {
-        "metadata": {
-            "source_url": url,
-            "category": categoria,
-            "subcategory": subcategoria,
-            "fecha": datetime.now().isoformat(),
-            "titulo": titulo
-        },
-        "prompt": prompt_data
+def generar_imagen_con_higgsfield(prompt_imagen, titulo, categoria):
+    """Genera imagen usando Higgsfield"""
+    if not HIGGSFIELD_API_KEY:
+        return None
+    
+    headers = {
+        "Authorization": f"Bearer {HIGGSFIELD_API_KEY}",
+        "Content-Type": "application/json"
     }
-
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(contenido, f, ensure_ascii=False, indent=2)
-
-    return filepath
-
-
-def generar_infografia_real(titulo, resumen, categoria):
-    """Genera un archivo descargable (simulado) para la infografía"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"infografia_{timestamp}_{nombre_limpio}.html"
-    filepath = os.path.join(IMAGENES_DIR, filename)
     
-    contenido = f"""<!DOCTYPE html>
-<html>
-<head><title>Infografía - {titulo}</title>
-<style>
-body {{ font-family: Arial; margin: 40px; background: #f5f5f5; }}
-.infografia {{ max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }}
-h1 {{ color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }}
-.categoria {{ display: inline-block; background: #3498db; color: white; padding: 5px 15px; border-radius: 20px; margin: 10px 0; }}
-.contenido {{ margin: 20px 0; line-height: 1.6; }}
-.fecha {{ color: #999; font-size: 12px; margin-top: 30px; }}
-</style>
-</head>
-<body>
-<div class="infografia">
-    <h1>📊 INFOGRAFÍA</h1>
-    <div class="categoria">{categoria}</div>
-    <h2>{titulo}</h2>
-    <div class="contenido">
-        <p><strong>Resumen ejecutivo:</strong><br>{resumen[:500]}</p>
-        <hr>
-        <p><strong>Datos clave:</strong><br>• Categoría: {categoria}<br>• Fecha de generación: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
-    </div>
-    <div class="fecha">Generado por Construex Ecosystem</div>
-</div>
-</body>
-</html>"""
+    payload = {
+        "prompt": prompt_imagen,
+        "width": 1080,
+        "height": 1080,
+        "num_inference_steps": 30,
+        "guidance_scale": 7.5
+    }
     
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(contenido)
-    return filepath
+    try:
+        print("   🖼️ Generando imagen...")
+        response = requests.post(
+            "https://api.higgsfield.ai/v1/images/generations",
+            headers=headers,
+            json=payload,
+            timeout=120
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            image_url = result.get("data", [{}])[0].get("url")
+            
+            if image_url:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
+                filename = f"imagen_{timestamp}_{nombre_limpio}.png"
+                filepath = os.path.join(IMAGENES_DIR, filename)
+                
+                img_response = requests.get(image_url)
+                with open(filepath, 'wb') as f:
+                    f.write(img_response.content)
+                
+                print(f"   ✅ Imagen guardada: {filepath}")
+                return filepath
+    except Exception as e:
+        print(f"   ❌ Error imagen: {e}")
+    
+    return None
 
 
-def generar_podcast_real(titulo, resumen, categoria):
-    """Genera un archivo descargable (simulado) para el podcast"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"podcast_{timestamp}_{nombre_limpio}.html"
-    filepath = os.path.join(AUDIOS_DIR, filename)
+def generar_video_con_higgsfield(prompt_video, titulo, categoria):
+    """Genera video usando Higgsfield"""
+    if not HIGGSFIELD_API_KEY:
+        return None
     
-    contenido = f"""<!DOCTYPE html>
-<html>
-<head><title>Podcast - {titulo}</title>
-<style>
-body {{ font-family: Arial; margin: 40px; background: #f5f5f5; }}
-.podcast {{ max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }}
-audio {{ width: 100%; margin: 20px 0; }}
-.guion {{ background: #f8f9fa; padding: 20px; border-radius: 10px; margin-top: 20px; }}
-</style>
-</head>
-<body>
-<div class="podcast">
-    <h1>🎙️ PODCAST EDUCATIVO</h1>
-    <div class="categoria" style="background:#e67e22;">{categoria}</div>
-    <h2>{titulo}</h2>
+    headers = {
+        "Authorization": f"Bearer {HIGGSFIELD_API_KEY}",
+        "Content-Type": "application/json"
+    }
     
-    <h3>🎧 Escuchar podcast (simulación)</h3>
-    <audio controls>
-        <source src="#" type="audio/mpeg">
-        Tu navegador no soporta reproducción de audio.
-    </audio>
+    payload = {
+        "prompt": prompt_video,
+        "duration": 10,
+        "aspect_ratio": "9:16"
+    }
     
-    <div class="guion">
-        <h3>📝 Guion del podcast</h3>
-        <p><strong>Locutor:</strong> Bienvenidos a Construex Ecosystem.</p>
-        <p><strong>Locutor:</strong> Hoy hablamos sobre: {titulo[:100]}</p>
-        <p><strong>Locutor:</strong> {resumen[:400]}...</p>
-        <p><strong>Locutor:</strong> Gracias por escuchar este podcast educativo.</p>
-    </div>
+    try:
+        print("   🎬 Generando video...")
+        response = requests.post(
+            "https://api.higgsfield.ai/v1/video/generations",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code == 202:
+            generation_id = response.json().get("id")
+            print(f"   ⏳ Procesando video (ID: {generation_id})...")
+            
+            for i in range(60):
+                time.sleep(5)
+                status_response = requests.get(
+                    f"https://api.higgsfield.ai/v1/video/generations/{generation_id}",
+                    headers=headers
+                )
+                status_data = status_response.json()
+                
+                if status_data.get("status") == "completed":
+                    video_url = status_data.get("output", {}).get("url")
+                    print(f"   ✅ Video generado: {video_url}")
+                    
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
+                    info_path = os.path.join(VIDEOS_DIR, f"video_{timestamp}_{nombre_limpio}.json")
+                    
+                    with open(info_path, 'w', encoding='utf-8') as f:
+                        json.dump({
+                            "titulo": titulo,
+                            "categoria": categoria,
+                            "url": video_url,
+                            "created_at": datetime.now().isoformat()
+                        }, f, ensure_ascii=False, indent=2)
+                    
+                    return video_url
+                    
+                elif status_data.get("status") == "failed":
+                    print(f"   ❌ Error: {status_data.get('error')}")
+                    return None
+            
+            return None
+    except Exception as e:
+        print(f"   ❌ Error video: {e}")
     
-    <div class="fecha">Generado el {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</div>
-</div>
-</body>
-</html>"""
-    
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(contenido)
-    return filepath
+    return None
 
 
-def generar_presentacion_real(titulo, resumen, categoria):
-    """Genera un archivo descargable (simulado) para la presentación"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"presentacion_{timestamp}_{nombre_limpio}.html"
-    filepath = os.path.join(PRESENTACIONES_DIR, filename)
-    
-    contenido = f"""<!DOCTYPE html>
-<html>
-<head><title>Presentación - {titulo}</title>
-<style>
-body {{ font-family: Arial; margin: 0; background: #2c3e50; }}
-.slide {{ min-height: 100vh; display: flex; align-items: center; justify-content: center; background: white; margin: 20px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.2); padding: 40px; }}
-.slide-content {{ max-width: 800px; margin: auto; }}
-h1 {{ color: #2c3e50; }}
-.numero {{ position: fixed; bottom: 20px; right: 20px; background: #3498db; color: white; padding: 10px 15px; border-radius: 50%; }}
-</style>
-</head>
-<body>
-<div class="slide">
-    <div class="slide-content">
-        <h1>📊 PRESENTACIÓN EJECUTIVA</h1>
-        <h2>{titulo}</h2>
-        <p>Categoría: {categoria}</p>
-        <p>Fecha: {datetime.now().strftime("%Y-%m-%d")}</p>
-    </div>
-    <div class="numero">1/5</div>
-</div>
-<div class="slide">
-    <div class="slide-content">
-        <h2>📋 Resumen ejecutivo</h2>
-        <p>{resumen[:400]}</p>
-    </div>
-    <div class="numero">2/5</div>
-</div>
-<div class="slide">
-    <div class="slide-content">
-        <h2>🎯 Puntos clave</h2>
-        <ul>
-            <li>Primer punto importante</li>
-            <li>Segundo punto importante</li>
-            <li>Tercer punto importante</li>
-        </ul>
-    </div>
-    <div class="numero">3/5</div>
-</div>
-<div class="slide">
-    <div class="slide-content">
-        <h2>🚀 Aplicación práctica</h2>
-        <p>Este contenido puede aplicarse en el sector de {categoria} para mejorar procesos y resultados.</p>
-    </div>
-    <div class="numero">4/5</div>
-</div>
-<div class="slide">
-    <div class="slide-content">
-        <h2>✅ Conclusiones</h2>
-        <p>Material generado automáticamente por Construex Ecosystem.</p>
-    </div>
-    <div class="numero">5/5</div>
-</div>
-</body>
-</html>"""
-    
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(contenido)
-    return filepath
+def crear_prompt_para_imagen(titulo, categoria, resumen):
+    """Crea un prompt optimizado para generar imagen"""
+    return f"""
+    Imagen profesional para publicación en redes sociales.
+    Tema: {titulo[:100]}
+    Categoría: {categoria}
+    Contexto: {resumen[:200]}
+    Estilo: Moderno, atractivo, colores corporativos (azul y blanco), apto para Instagram.
+    Incluye elementos visuales relacionados con {categoria}.
+    """
 
 
-def generar_video_real(titulo, resumen, categoria):
-    """Genera un archivo descargable (simulado) para el video"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"video_{timestamp}_{nombre_limpio}.html"
-    filepath = os.path.join(VIDEOS_DIR, filename)
-    
-    contenido = f"""<!DOCTYPE html>
-<html>
-<head><title>Video - {titulo}</title>
-<style>
-body {{ font-family: Arial; margin: 40px; background: #f5f5f5; }}
-.video {{ max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }}
-.prompt {{ background: #e8f4f8; padding: 20px; border-radius: 10px; margin: 20px 0; }}
-</style>
-</head>
-<body>
-<div class="video">
-    <h1>🎬 VIDEO EDUCATIVO</h1>
-    <div class="categoria" style="background:#e74c3c;">{categoria}</div>
-    <h2>{titulo}</h2>
-    
-    <div class="prompt">
-        <h3>📹 Prompt para Higgsfield</h3>
-        <p><strong>Video educativo sobre {categoria}: {titulo[:100]}</strong></p>
-        <p>{resumen[:300]}</p>
-        <p><strong>Duración sugerida:</strong> 20 segundos</p>
-        <p><strong>Formato:</strong> 9:16 (vertical)</p>
-    </div>
-    
-    <div class="fecha">Generado el {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</div>
-    <p><small>Para generar el video real, copia este prompt en la plataforma Higgsfield.</small></p>
-</div>
-</body>
-</html>"""
-    
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(contenido)
-    return filepath
+def crear_prompt_para_video(titulo, categoria, resumen):
+    """Crea un prompt optimizado para generar video"""
+    return f"""
+    Video educativo corto para TikTok/Reels.
+    Título: {titulo[:80]}
+    Categoría: {categoria}
+    Contenido: {resumen[:200]}
+    Duración: 10 segundos.
+    Estilo: Dinámico, educativo, con movimiento de cámara suave.
+    Texto en pantalla: "Aprende sobre {categoria}"
+    """
 
 
-def guardar_en_db(url, titulo, dominio, categoria, subcategoria, viralidad, resumen, 
-                  archivo_resumen, archivo_higgsfield, infografia_url, podcast_url, 
-                  presentacion_url, video_url, motor_ia):
+def guardar_en_db(url, titulo, dominio, categoria, viralidad, resumen, imagen_url, video_url):
     conn = get_db()
     cursor = conn.cursor()
-    
     cursor.execute('''
-        INSERT INTO contenido (
-            fecha, url, titulo, dominio, categoria, subcategoria, viralidad,
-            resumen, archivo_resumen, archivo_higgsfield, infografia_url, podcast_url,
-            presentacion_url, video_url, motor_ia, procesado
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO contenido (fecha, url, titulo, dominio, categoria, viralidad, resumen, imagen_url, video_url, procesado)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         datetime.now().isoformat(),
         url,
         titulo[:200],
         dominio,
         categoria,
-        subcategoria,
         viralidad,
         resumen[:500],
-        archivo_resumen,
-        archivo_higgsfield,
-        infografia_url,
-        podcast_url,
-        presentacion_url,
+        imagen_url,
         video_url,
-        motor_ia,
         1
     ))
     conn.commit()
     conn.close()
-    print("   ✅ Datos guardados en BD")
 
 
-def procesar_enlace_completo(url, opciones=None):
-    if opciones is None:
-        opciones = {'video': False, 'infografia': False, 'podcast': False, 'presentacion': False}
-    
+def procesar_enlace_completo(url):
+    """Procesamiento completo - genera TODO automáticamente"""
     print(f"\n📡 Procesando: {url[:80]}...")
 
     resultado = {
-        "exito": True,
+        "exito": False,
         "url": url,
         "error": None
     }
 
     try:
+        # 1. Extraer contenido
         contenido = leer_contenido_url(url)
         if not contenido['exito']:
             resultado['error'] = "No se pudo acceder al enlace"
-            resultado['exito'] = False
             return resultado
 
         resultado['titulo'] = contenido['titulo']
-        categoria, subcategoria, viralidad = clasificar_manual(
+        print(f"   📄 Título: {contenido['titulo'][:60]}...")
+
+        # 2. Clasificar
+        categoria, viralidad = clasificar_con_gemini(
             contenido['titulo'],
             contenido['descripcion'],
             contenido['dominio']
         )
-
         resultado['categoria'] = categoria
-        resultado['subcategoria'] = subcategoria
         resultado['viralidad'] = viralidad
-        resultado['motor_usado'] = "manual"
+        print(f"   📁 Categoría: {categoria} (viralidad: {viralidad}/10)")
 
-        resumen = f"Resumen del artículo: {contenido['descripcion'][:500]}"
+        # 3. Generar resumen con Gemini
+        resumen = generar_resumen_con_gemini(contenido['titulo'], contenido['descripcion'])
         resultado['resumen'] = resumen
+        print(f"   📝 Resumen generado")
 
-        archivo_resumen = guardar_resumen(contenido['titulo'], categoria, subcategoria, resumen, url)
-        resultado['archivo_resumen'] = archivo_resumen
+        # 4. Crear prompts para imagen y video
+        prompt_imagen = crear_prompt_para_imagen(contenido['titulo'], categoria, resumen)
+        prompt_video = crear_prompt_para_video(contenido['titulo'], categoria, resumen)
 
-        prompt_higgsfield = {
-            "video_prompt": f"Video sobre {categoria}: {contenido['titulo'][:100]}",
-            "duration": 20,
-            "aspect_ratio": "9:16",
-            "style": "educational",
-            "text_overlay": f"Aprende sobre {categoria}"
-        }
-        archivo_higgsfield = guardar_prompt_higgsfield(contenido['titulo'], categoria, subcategoria, prompt_higgsfield, url)
-        resultado['archivo_higgsfield'] = archivo_higgsfield
-        resultado['prompt_higgsfield'] = prompt_higgsfield
+        # 5. Generar imagen
+        imagen_url = generar_imagen_con_higgsfield(prompt_imagen, contenido['titulo'], categoria)
+        resultado['imagen_url'] = imagen_url
 
-        # Generar contenido adicional (archivos HTML descargables)
-        if opciones.get('infografia'):
-            infografia_url = generar_infografia_real(contenido['titulo'], resumen, categoria)
-            resultado['infografia_url'] = infografia_url
-        
-        if opciones.get('podcast'):
-            podcast_url = generar_podcast_real(contenido['titulo'], resumen, categoria)
-            resultado['podcast_url'] = podcast_url
-        
-        if opciones.get('presentacion'):
-            presentacion_url = generar_presentacion_real(contenido['titulo'], resumen, categoria)
-            resultado['presentacion_url'] = presentacion_url
-        
-        if opciones.get('video'):
-            video_url = generar_video_real(contenido['titulo'], resumen, categoria)
-            resultado['video_url'] = video_url
+        # 6. Generar video
+        video_url = generar_video_con_higgsfield(prompt_video, contenido['titulo'], categoria)
+        resultado['video_url'] = video_url
 
+        # 7. Guardar en BD
         guardar_en_db(
             url, contenido['titulo'], contenido['dominio'],
-            categoria, subcategoria, viralidad, resumen,
-            archivo_resumen, archivo_higgsfield,
-            resultado.get('infografia_url'), resultado.get('podcast_url'),
-            resultado.get('presentacion_url'), resultado.get('video_url'),
-            "manual"
+            categoria, viralidad, resumen, imagen_url, video_url
         )
 
+        resultado['exito'] = True
         return resultado
 
     except Exception as e:
         print(f"   ❌ Error: {e}")
-        resultado['exito'] = False
         resultado['error'] = str(e)
         return resultado
-
-
-# ============================================
-# SERVIDOR DE ARCHIVOS
-# ============================================
-
-@app.route('/descargar/<tipo>/<path:filename>')
-def descargar_archivo(tipo, filename):
-    """Sirve archivos generados para descarga"""
-    directorios = {
-        'infografia': IMAGENES_DIR,
-        'podcast': AUDIOS_DIR,
-        'presentacion': PRESENTACIONES_DIR,
-        'video': VIDEOS_DIR,
-        'resumen': BASE_DIR,
-        'prompt': HIGGSFIELD_DIR
-    }
-    
-    directorio = directorios.get(tipo, BASE_DIR)
-    return send_from_directory(directorio, filename, as_attachment=True)
-
-
-# ============================================
-# DASHBOARD HTML
-# ============================================
-
-DASHBOARD_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Construex Ecosystem</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f0f2f5; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        h1 { color: #2c3e50; }
-        .card { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .checkbox-group { display: flex; gap: 20px; margin: 15px 0; flex-wrap: wrap; }
-        .checkbox-group label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
-        input[type="text"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 10px; font-size: 14px; }
-        button { padding: 12px 24px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
-        button:hover { background: #2980b9; }
-        .btn-generar { background: #27ae60; }
-        .btn-generar:hover { background: #229954; }
-        .resultado { margin-top: 20px; padding: 15px; background: #e8f4f8; border-radius: 5px; display: none; }
-        .stats-grid { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
-        .stat-card { background: white; padding: 20px; border-radius: 10px; text-align: center; flex: 1; min-width: 150px; }
-        .stat-number { font-size: 32px; font-weight: bold; color: #3498db; }
-        .contenido-item { border-bottom: 1px solid #eee; padding: 10px; cursor: pointer; }
-        .contenido-item:hover { background: #f8f9fa; }
-        .categoria-badge { display: inline-block; padding: 3px 10px; border-radius: 15px; font-size: 11px; font-weight: bold; margin-right: 10px; }
-        .Construccion { background: #795548; color: white; }
-        .Emprendimiento { background: #FF9800; color: white; }
-        .Automejora { background: #9C27B0; color: white; }
-        .Salud { background: #4CAF50; color: white; }
-        .Construex-University { background: #2196F3; color: white; }
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-content { background: white; border-radius: 10px; max-width: 700px; width: 90%; max-height: 80vh; overflow-y: auto; padding: 20px; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
-        .modal-close { cursor: pointer; font-size: 24px; }
-        .download-link { display: inline-block; margin-top: 10px; color: #3498db; text-decoration: none; }
-        .download-link:hover { text-decoration: underline; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🏗️ Construex Ecosystem</h1>
-        
-        <div class="card">
-            <h3>📎 Procesar nuevo enlace</h3>
-            <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo">
-            
-            <div class="checkbox-group">
-                <label><input type="checkbox" id="infografia"> 🖼️ Infografía (HTML)</label>
-                <label><input type="checkbox" id="podcast"> 🎙️ Podcast (HTML)</label>
-                <label><input type="checkbox" id="presentacion"> 📊 Presentación (HTML)</label>
-                <label><input type="checkbox" id="video"> 🎬 Video (HTML con prompt)</label>
-            </div>
-            
-            <button class="btn-generar" onclick="procesarTodo()">🚀 Procesar y generar TODO</button>
-            <button onclick="cargarDatos()">🔄 Actualizar</button>
-            <div id="resultado" class="resultado"></div>
-        </div>
-        
-        <div class="stats-grid" id="stats"></div>
-        
-        <div class="card">
-            <h3>📋 Últimos contenidos</h3>
-            <div id="ultimos"></div>
-        </div>
-    </div>
-    
-    <div id="detalleModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>📄 Detalle</h2>
-                <span class="modal-close" onclick="cerrarModal()">&times;</span>
-            </div>
-            <div id="modalBody"></div>
-        </div>
-    </div>
-    
-    <script>
-        async function procesarTodo() {
-            const url = document.getElementById('urlInput').value;
-            if (!url) { alert('Ingresa una URL'); return; }
-            
-            const opciones = {
-                mensaje: url,
-                generar_infografia: document.getElementById('infografia').checked,
-                generar_podcast: document.getElementById('podcast').checked,
-                generar_presentacion: document.getElementById('presentacion').checked,
-                generar_video: document.getElementById('video').checked
-            };
-            
-            const resultadoDiv = document.getElementById('resultado');
-            resultadoDiv.style.display = 'block';
-            resultadoDiv.innerHTML = '⏳ Procesando...';
-            
-            try {
-                const response = await fetch('/procesar', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(opciones)
-                });
-                const data = await response.json();
-                
-                if (data.exito) {
-                    let html = `<div style="background:#d4edda; padding:15px; border-radius:8px;">`;
-                    html += `<strong>✅ Procesado correctamente</strong><br>`;
-                    html += `📁 Categoría: ${data.categoria}<br>`;
-                    html += `🔥 Viralidad: ${data.viralidad}/10<br>`;
-                    if (data.infografia_url) {
-                        let filename = data.infografia_url.split('/').pop();
-                        html += `🖼️ Infografía: <a href="/descargar/infografia/${filename}" class="download-link" target="_blank">📥 Descargar</a><br>`;
-                    }
-                    if (data.podcast_url) {
-                        let filename = data.podcast_url.split('/').pop();
-                        html += `🎙️ Podcast: <a href="/descargar/podcast/${filename}" class="download-link" target="_blank">📥 Descargar</a><br>`;
-                    }
-                    if (data.presentacion_url) {
-                        let filename = data.presentacion_url.split('/').pop();
-                        html += `📊 Presentación: <a href="/descargar/presentacion/${filename}" class="download-link" target="_blank">📥 Descargar</a><br>`;
-                    }
-                    if (data.video_url) {
-                        let filename = data.video_url.split('/').pop();
-                        html += `🎬 Video: <a href="/descargar/video/${filename}" class="download-link" target="_blank">📥 Descargar prompt</a><br>`;
-                    }
-                    html += `<button onclick="verDetalle('${data.url}')" style="margin-top:10px;">📖 Ver detalle</button></div>`;
-                    resultadoDiv.innerHTML = html;
-                    cargarDatos();
-                    document.getElementById('urlInput').value = '';
-                } else {
-                    resultadoDiv.innerHTML = `<div style="background:#f8d7da; padding:15px; border-radius:8px;">❌ Error: ${data.error}</div>`;
-                }
-            } catch(e) {
-                resultadoDiv.innerHTML = `<div style="background:#f8d7da; padding:15px; border-radius:8px;">❌ Error: ${e.message}</div>`;
-            }
-        }
-        
-        async function cargarDatos() {
-            try {
-                const statsRes = await fetch('/estadisticas');
-                const stats = await statsRes.json();
-                document.getElementById('stats').innerHTML = `
-                    <div class="stat-card"><div class="stat-number">${stats.total || 0}</div><div>Total</div></div>
-                    <div class="stat-card"><div class="stat-number">${stats.viral_promedio || 0}/10</div><div>Viralidad promedio</div></div>
-                `;
-                
-                const ultimosRes = await fetch('/ultimos');
-                const ultimos = await ultimosRes.json();
-                if (ultimos.ultimos && ultimos.ultimos.length > 0) {
-                    let html = '';
-                    for (let item of ultimos.ultimos) {
-                        html += `<div class="contenido-item" onclick="verDetalle('${item.url}')">
-                            <span class="categoria-badge ${item.categoria}">${item.categoria}</span>
-                            <strong>${item.titulo ? item.titulo.substring(0, 60) : 'Sin título'}</strong>
-                            <div style="font-size: 11px; color:#999;">${item.fecha ? item.fecha.substring(0, 19) : ''}</div>
-                        </div>`;
-                    }
-                    document.getElementById('ultimos').innerHTML = html;
-                } else {
-                    document.getElementById('ultimos').innerHTML = '<p>No hay contenido</p>';
-                }
-            } catch(e) { console.error(e); }
-        }
-        
-        async function verDetalle(url) {
-            try {
-                const response = await fetch('/detalle?url=' + encodeURIComponent(url));
-                const data = await response.json();
-                if (data.exito) {
-                    let html = `<h3>${data.titulo || 'Sin título'}</h3>
-                        <p><strong>Categoría:</strong> ${data.categoria}</p>
-                        <p><strong>Viralidad:</strong> ${data.viralidad}/10</p>
-                        <p><strong>Resumen:</strong> ${data.resumen || 'No disponible'}</p>`;
-                    
-                    if (data.infografia_url) {
-                        let filename = data.infografia_url.split('/').pop();
-                        html += `<p><a href="/descargar/infografia/${filename}" target="_blank">📥 Descargar Infografía</a></p>`;
-                    }
-                    if (data.podcast_url) {
-                        let filename = data.podcast_url.split('/').pop();
-                        html += `<p><a href="/descargar/podcast/${filename}" target="_blank">📥 Descargar Podcast</a></p>`;
-                    }
-                    if (data.presentacion_url) {
-                        let filename = data.presentacion_url.split('/').pop();
-                        html += `<p><a href="/descargar/presentacion/${filename}" target="_blank">📥 Descargar Presentación</a></p>`;
-                    }
-                    if (data.video_url) {
-                        let filename = data.video_url.split('/').pop();
-                        html += `<p><a href="/descargar/video/${filename}" target="_blank">📥 Descargar Prompt de Video</a></p>`;
-                    }
-                    
-                    document.getElementById('modalBody').innerHTML = html;
-                    document.getElementById('detalleModal').style.display = 'flex';
-                }
-            } catch(e) { alert('Error: ' + e.message); }
-        }
-        
-        function cerrarModal() { document.getElementById('detalleModal').style.display = 'none'; }
-        
-        cargarDatos();
-        setInterval(cargarDatos, 30000);
-    </script>
-</body>
-</html>
-"""
 
 
 # ============================================
@@ -743,7 +418,109 @@ DASHBOARD_HTML = """
 
 @app.route('/')
 def home():
-    return DASHBOARD_HTML
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Construex Ecosystem - Generador Automático</title>
+        <style>
+            body { font-family: Arial; margin: 40px; background: #f0f2f5; text-align: center; }
+            .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            input { width: 80%; padding: 12px; margin: 10px; border: 1px solid #ddd; border-radius: 5px; }
+            button { background: #27ae60; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+            button:hover { background: #229954; }
+            .resultado { margin-top: 20px; padding: 15px; background: #e8f4f8; border-radius: 10px; text-align: left; display: none; }
+            .loading { color: #666; }
+            img, video { max-width: 100%; margin-top: 10px; border-radius: 10px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🏗️ Construex Ecosystem</h1>
+            <p>Ingresa un enlace y obtendrás IMAGEN + VIDEO automáticamente</p>
+            
+            <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo">
+            <br>
+            <button onclick="procesar()">🚀 Generar Contenido</button>
+            
+            <div id="resultado" class="resultado"></div>
+        </div>
+        
+        <script>
+            async function procesar() {
+                const url = document.getElementById('urlInput').value;
+                if (!url) { alert('Ingresa una URL'); return; }
+                
+                const resultadoDiv = document.getElementById('resultado');
+                resultadoDiv.style.display = 'block';
+                resultadoDiv.innerHTML = '<div class="loading">⏳ Procesando... Generando imagen y video (puede tomar 1-2 minutos)</div>';
+                
+                try {
+                    const response = await fetch('/procesar', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mensaje: url })
+                    });
+                    const data = await response.json();
+                    
+                    if (data.exito) {
+                        let html = `<strong>✅ ¡Contenido generado!</strong><br>`;
+                        html += `<p><strong>📁 Categoría:</strong> ${data.categoria}</p>`;
+                        html += `<p><strong>🔥 Viralidad:</strong> ${data.viralidad}/10</p>`;
+                        html += `<p><strong>📝 Resumen:</strong> ${data.resumen || 'No disponible'}</p>`;
+                        
+                        if (data.imagen_url) {
+                            html += `<hr><strong>🖼️ Imagen generada:</strong><br>`;
+                            html += `<img src="${data.imagen_url}" alt="Imagen generada" style="max-width:100%; border-radius:10px;">`;
+                            html += `<br><a href="${data.imagen_url}" download>📥 Descargar Imagen</a>`;
+                        }
+                        
+                        if (data.video_url) {
+                            html += `<hr><strong>🎬 Video generado:</strong><br>`;
+                            html += `<video controls style="max-width:100%; border-radius:10px;">
+                                        <source src="${data.video_url}" type="video/mp4">
+                                        Tu navegador no soporta video.
+                                     </video>`;
+                            html += `<br><a href="${data.video_url}" download>📥 Descargar Video</a>`;
+                        }
+                        
+                        resultadoDiv.innerHTML = html;
+                        document.getElementById('urlInput').value = '';
+                    } else {
+                        resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error || 'No se pudo procesar'}`;
+                    }
+                } catch(e) {
+                    resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${e.message}`;
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
+
+
+@app.route('/procesar', methods=['POST'])
+def procesar():
+    data = request.get_json()
+    mensaje = data.get('mensaje', '')
+    
+    if not mensaje:
+        return jsonify({"error": "No hay mensaje"}), 400
+    enlaces = extraer_enlaces(mensaje)
+    if not enlaces:
+        return jsonify({"error": "No se encontraron enlaces"}), 400
+    resultado = procesar_enlace_completo(enlaces[0])
+    return jsonify(resultado), 200
+
+
+@app.route('/imagenes/<path:filename>')
+def descargar_imagen(filename):
+    return send_from_directory(IMAGENES_DIR, filename, as_attachment=True)
+
+
+@app.route('/videos/<path:filename>')
+def descargar_video(filename):
+    return send_from_directory(VIDEOS_DIR, filename, as_attachment=True)
 
 
 @app.route('/webhook', methods=['GET'])
@@ -761,64 +538,6 @@ def receive_whatsapp():
     return jsonify({"status": "ok"}), 200
 
 
-@app.route('/procesar', methods=['POST'])
-def procesar():
-    data = request.get_json()
-    mensaje = data.get('mensaje', '')
-    
-    opciones = {
-        'infografia': data.get('generar_infografia', False),
-        'podcast': data.get('generar_podcast', False),
-        'presentacion': data.get('generar_presentacion', False),
-        'video': data.get('generar_video', False)
-    }
-    
-    if not mensaje:
-        return jsonify({"error": "No hay mensaje"}), 400
-    enlaces = extraer_enlaces(mensaje)
-    if not enlaces:
-        return jsonify({"error": "No se encontraron enlaces"}), 400
-    resultado = procesar_enlace_completo(enlaces[0], opciones)
-    return jsonify(resultado), 200
-
-
-@app.route('/ultimos', methods=['GET'])
-def ultimos_contenidos():
-    conn = get_db()
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute('SELECT fecha, url, titulo, categoria FROM contenido ORDER BY id DESC LIMIT 20')
-    ultimos = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    return jsonify({"ultimos": ultimos}), 200
-
-
-@app.route('/estadisticas', methods=['GET'])
-def estadisticas():
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM contenido")
-    total = cursor.fetchone()[0]
-    cursor.execute("SELECT AVG(viralidad) FROM contenido")
-    viral_promedio = cursor.fetchone()[0] or 0
-    conn.close()
-    return jsonify({"total": total, "viral_promedio": round(viral_promedio, 1)}), 200
-
-
-@app.route('/detalle', methods=['GET'])
-def detalle_contenido():
-    url = request.args.get('url', '')
-    conn = get_db()
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM contenido WHERE url = ? ORDER BY id DESC LIMIT 1', (url,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return jsonify({"exito": True, **dict(row)}), 200
-    return jsonify({"exito": False, "error": "No encontrado"}), 404
-
-
 @app.route('/test', methods=['GET'])
 def test():
     return jsonify({"status": "ok", "message": "Sistema Construex funcionando"}), 200
@@ -832,7 +551,18 @@ if __name__ == '__main__':
     init_db()
     print("""
 ======================================================================
-         CONSTRUEX ECOSYSTEM - FUNCIONANDO
+         CONSTRUEX ECOSYSTEM - VERSIÓN AUTOSUFICIENTE
+======================================================================
+
+FUNCIONALIDADES:
+   ✅ Extrae contenido del enlace
+   ✅ Clasifica con IA (Gemini)
+   ✅ Genera imagen profesional (Higgsfield)
+   ✅ Genera video educativo (Higgsfield)
+   ✅ Todo automático - solo ingresa el enlace
+
+ACCESO: http://localhost:10000/
+
 ======================================================================
 """)
     port = int(os.environ.get("PORT", 10000))
