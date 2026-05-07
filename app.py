@@ -2,6 +2,7 @@ import os
 import re
 import requests
 import time
+import random
 from flask import Flask, request, jsonify, send_from_directory
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
@@ -10,11 +11,6 @@ from dotenv import load_dotenv
 load_dotenv()
 app = Flask(__name__)
 
-# ============================================
-# CONFIGURACION
-# ============================================
-
-HIGGSFIELD_API_KEY = os.getenv("HIGGSFIELD_API_KEY", "72700186-4d90-427e-ab87-d01b13ea189b")
 IMAGENES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "imagenes_generadas")
 os.makedirs(IMAGENES_DIR, exist_ok=True)
 
@@ -58,53 +54,31 @@ def clasificar_manual(titulo, descripcion, dominio):
     return "Automejora", 5
 
 
-def generar_imagen(titulo, categoria):
-    """Genera una imagen usando Higgsfield"""
-    if not HIGGSFIELD_API_KEY:
-        print("⚠️ Higgsfield API key no configurada")
-        return None
+def generar_imagen_con_ia(titulo, categoria):
+    """Genera imagen usando Pollinations.ai (gratis, sin API key)"""
     
-    headers = {
-        "Authorization": f"Bearer {HIGGSFIELD_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    # Crear prompt optimizado
+    prompt = f"{categoria} tema principal: {titulo[:150]}"
     
-    prompt = f"Imagen profesional para publicación en redes sociales sobre {categoria}: {titulo[:100]}. Estilo moderno y atractivo, colores corporativos."
+    # Usar Pollinations.ai - servicio gratuito de generación de imágenes
+    url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}?width=1080&height=1080&nologo=true"
     
-    payload = {
-        "prompt": prompt,
-        "width": 1080,
-        "height": 1080,
-        "num_inference_steps": 25
-    }
+    timestamp = str(int(time.time()))
+    nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:30]).replace(' ', '_')
+    filename = f"imagen_{timestamp}_{nombre_limpio}.jpg"
+    filepath = os.path.join(IMAGENES_DIR, filename)
     
     try:
-        print(f"   🖼️ Generando imagen...")
-        response = requests.post(
-            "https://api.higgsfield.ai/v1/images/generations",
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
+        print(f"   🖼️ Generando imagen para: {categoria}")
+        response = requests.get(url, timeout=60)
         
         if response.status_code == 200:
-            result = response.json()
-            image_url = result.get("data", [{}])[0].get("url")
-            
-            if image_url:
-                timestamp = str(int(time.time()))
-                nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:30]).replace(' ', '_')
-                filename = f"imagen_{timestamp}_{nombre_limpio}.png"
-                filepath = os.path.join(IMAGENES_DIR, filename)
-                
-                img_response = requests.get(image_url)
-                with open(filepath, 'wb') as f:
-                    f.write(img_response.content)
-                
-                print(f"   ✅ Imagen guardada: {filepath}")
-                return f"/imagenes/{filename}"
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
+            print(f"   ✅ Imagen guardada: {filepath}")
+            return f"/imagenes/{filename}"
         else:
-            print(f"   ❌ Error: {response.status_code}")
+            print(f"   ❌ Error HTTP: {response.status_code}")
             return None
     except Exception as e:
         print(f"   ❌ Error: {e}")
@@ -117,7 +91,7 @@ def home():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Construex - Generador de Imagen</title>
+        <title>Construex Ecosystem</title>
         <style>
             body { font-family: Arial; margin: 40px; background: #f0f2f5; text-align: center; }
             .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 15px; }
@@ -125,12 +99,13 @@ def home():
             button { background: #27ae60; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; }
             .resultado { margin-top: 20px; padding: 15px; background: #e8f4f8; border-radius: 10px; text-align: left; display: none; }
             img { max-width: 100%; margin-top: 10px; border-radius: 10px; }
+            .loading { color: #666; }
         </style>
     </head>
     <body>
         <div class="container">
             <h1>🏗️ Construex Ecosystem</h1>
-            <p>Ingresa un enlace para generar una imagen</p>
+            <p>Genera imágenes desde cualquier enlace</p>
             <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo">
             <br>
             <button onclick="procesar()">🚀 Generar Imagen</button>
@@ -162,7 +137,7 @@ def home():
                         resultadoDiv.innerHTML = html;
                         document.getElementById('urlInput').value = '';
                     } else {
-                        resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error || 'No se pudo generar'}`;
+                        resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error}`;
                     }
                 } catch(e) {
                     resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${e.message}`;
@@ -192,15 +167,14 @@ def procesar():
     
     categoria, viralidad = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
     
-    imagen_url = generar_imagen(contenido['titulo'], categoria)
+    imagen_url = generar_imagen_con_ia(contenido['titulo'], categoria)
     
     return jsonify({
         "exito": imagen_url is not None,
         "categoria": categoria,
         "viralidad": viralidad,
         "titulo": contenido['titulo'],
-        "imagen_url": imagen_url,
-        "url": enlaces[0]
+        "imagen_url": imagen_url
     })
 
 
@@ -210,6 +184,7 @@ def descargar_imagen(filename):
 
 
 if __name__ == '__main__':
+    import time
     port = int(os.environ.get("PORT", 10000))
     print(f"🚀 Servidor corriendo en puerto {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
