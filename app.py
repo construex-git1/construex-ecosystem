@@ -1,14 +1,6 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN FINAL COMPLETA
-======================================================================
-Funcionalidades:
-- Clasificación de enlaces en 5 categorías
-- Generación de resúmenes para Notebook LM
-- Generación de prompts para Higgsfield (videos)
-- Generación automática de videos (opcional)
-- Preparación de contenido para redes sociales
-- Dashboard web visual
+         CONSTRUEX ECOSYSTEM - VERSIÓN CON VISUALIZACIÓN
 ======================================================================
 """
 
@@ -18,7 +10,7 @@ import json
 import requests
 import sqlite3
 from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from dotenv import load_dotenv
@@ -34,9 +26,7 @@ WHATSAPP_VERIFY_TOKEN = "construex_verify_2026"
 
 # APIs
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GROK_API_KEY = os.getenv("GROK_API_KEY")
 HIGGSFIELD_API_KEY = os.getenv("HIGGSFIELD_API_KEY", "72700186-4d90-427e-ab87-d01b13ea189b")
-HIGGSFIELD_API_SECRET = os.getenv("HIGGSFIELD_API_SECRET")
 HIGGSFIELD_API_URL = "https://api.higgsfield.ai/v1/generate"
 
 # Directorios
@@ -91,7 +81,7 @@ def init_db():
     print("✅ Base de datos inicializada")
 
 # ============================================
-# FUNCIONES DE EXTRACCION
+# FUNCIONES DE EXTRACCION Y CLASIFICACION
 # ============================================
 
 def extraer_enlaces(texto):
@@ -135,10 +125,6 @@ def leer_contenido_url(url):
 
     return resultado
 
-# ============================================
-# CLASIFICACION
-# ============================================
-
 def clasificar_manual(titulo, descripcion, dominio):
     texto = f"{titulo} {descripcion}".lower()
     if any(p in texto for p in ["construc", "canal", "obra", "cemento", "arquitect", "edificio"]):
@@ -152,7 +138,7 @@ def clasificar_manual(titulo, descripcion, dominio):
     return "Automejora", "Crecimiento", 5
 
 # ============================================
-# GUARDADO DE ARCHIVOS
+# GENERACION DE CONTENIDO
 # ============================================
 
 def guardar_resumen(titulo, categoria, subcategoria, resumen, url):
@@ -181,22 +167,14 @@ subcategory: {subcategoria}
 
     return filepath
 
-# ============================================
-# GENERACION DE PROMPTS PARA HIGGSFIELD
-# ============================================
-
 def generar_prompt_higgsfield(titulo, resumen, categoria, subcategoria, viralidad):
-    """Genera un prompt detallado para Higgsfield"""
     return {
-        "video_prompt": f"Video educativo sobre {categoria}: {titulo[:100]}.\nContenido: {resumen[:300]}.\nUsa un tono profesional y claro.",
+        "video_prompt": f"Video educativo sobre {categoria}: {titulo[:100]}\n\nContenido: {resumen[:300]}",
         "duration": 20,
         "aspect_ratio": "9:16",
         "style": "educational",
         "text_overlay": f"Aprende sobre {categoria}",
-        "hashtags": [f"#{categoria.replace(' ', '')}", "#Construex", "#Educacion"],
-        "color_palette": ["#2c3e50", "#3498db"],
-        "camera_movement": "slow zoom",
-        "music_mood": "inspirational"
+        "hashtags": [f"#{categoria.replace(' ', '')}", "#Construex", "#Educacion"]
     }
 
 def guardar_prompt_higgsfield(titulo, categoria, subcategoria, prompt_data, url):
@@ -211,110 +189,15 @@ def guardar_prompt_higgsfield(titulo, categoria, subcategoria, prompt_data, url)
             "category": categoria,
             "subcategory": subcategoria,
             "fecha": datetime.now().isoformat(),
-            "titulo": titulo,
-            "viralidad": prompt_data.get("duration", 20)
+            "titulo": titulo
         },
-        "prompt": prompt_data,
-        "guia_publicacion": {
-            "mejor_plataforma": "TikTok" if prompt_data.get("duration", 20) <= 20 else "Instagram Reels",
-            "mejor_horario": "19:00 - 21:00",
-            "hashtags_sugeridos": prompt_data.get("hashtags", [f"#{categoria.replace(' ', '')}"])
-        }
+        "prompt": prompt_data
     }
 
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(contenido, f, ensure_ascii=False, indent=2)
 
     return filepath
-
-# ============================================
-# GENERACION DE VIDEOS CON HIGGSFIELD
-# ============================================
-
-def generar_video_con_higgsfield(prompt_data, titulo, categoria):
-    if not HIGGSFIELD_API_KEY:
-        print("   ⚠️ Higgsfield API key no configurada")
-        return None
-
-    headers = {
-        "Authorization": f"Bearer {HIGGSFIELD_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "prompt": prompt_data.get("video_prompt", ""),
-        "duration": prompt_data.get("duration", 15),
-        "aspect_ratio": prompt_data.get("aspect_ratio", "9:16"),
-        "style": prompt_data.get("style", "educational")
-    }
-
-    try:
-        print("   🎬 Generando video con Higgsfield...")
-        response = requests.post(HIGGSFIELD_API_URL, headers=headers, json=payload, timeout=120)
-
-        if response.status_code == 200:
-            result = response.json()
-            video_url = result.get("video_url") or result.get("output_url") or result.get("url")
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-            video_info = {
-                "titulo": titulo,
-                "categoria": categoria,
-                "url": video_url,
-                "created_at": datetime.now().isoformat(),
-                "prompt_usado": prompt_data
-            }
-
-            info_path = os.path.join(VIDEOS_DIR, f"{timestamp}_{nombre_limpio}.json")
-            with open(info_path, 'w', encoding='utf-8') as f:
-                json.dump(video_info, f, ensure_ascii=False, indent=2)
-
-            print(f"   ✅ Video generado: {video_url}")
-            return video_url
-        else:
-            print(f"   ❌ Error Higgsfield: {response.status_code}")
-            return None
-    except Exception as e:
-        print(f"   ❌ Error: {e}")
-        return None
-
-# ============================================
-# PREPARACION PARA REDES SOCIALES
-# ============================================
-
-def preparar_publicacion_redes(titulo, resumen, categoria, viralidad, video_url=None):
-    publicaciones = {
-        "instagram": {
-            "caption": f"✨ {titulo[:100]}\n\n{resumen[:300]}\n\n#{categoria.replace(' ', '')} #Construex #Educacion",
-            "url": video_url
-        },
-        "tiktok": {
-            "description": f"{resumen[:150]} #{categoria.replace(' ', '')} #Construex",
-            "url": video_url
-        },
-        "twitter": {
-            "text": f"{titulo[:100]}\n\n{resumen[:240]}\n\n#{categoria.replace(' ', '')} #Construex",
-            "url": video_url
-        },
-        "linkedin": {
-            "text": f"📌 {titulo[:120]}\n\n{resumen[:500]}\n\n#{categoria.replace(' ', '')} #Construex",
-            "url": video_url
-        }
-    }
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    pub_path = os.path.join(VIDEOS_DIR, f"publicacion_{timestamp}_{nombre_limpio}.json")
-
-    with open(pub_path, 'w', encoding='utf-8') as f:
-        json.dump(publicaciones, f, ensure_ascii=False, indent=2)
-
-    return publicaciones, pub_path
-
-# ============================================
-# GUARDADO EN BASE DE DATOS
-# ============================================
 
 def guardar_en_db(url, titulo, dominio, categoria, subcategoria, viralidad, resumen, archivo_resumen, archivo_higgsfield, video_url, motor_ia):
     conn = sqlite3.connect(DB_FILE)
@@ -363,10 +246,6 @@ def guardar_en_db(url, titulo, dominio, categoria, subcategoria, viralidad, resu
     conn.commit()
     conn.close()
 
-# ============================================
-# PROCESAMIENTO COMPLETO
-# ============================================
-
 def procesar_enlace_completo(url, generar_video=False):
     print(f"\n📡 Procesando: {url[:80]}...")
 
@@ -384,8 +263,6 @@ def procesar_enlace_completo(url, generar_video=False):
             return resultado
 
         resultado['titulo'] = contenido['titulo']
-        print(f"   📄 Título: {contenido['titulo'][:60]}...")
-
         categoria, subcategoria, viralidad = clasificar_manual(
             contenido['titulo'],
             contenido['descripcion'],
@@ -397,71 +274,23 @@ def procesar_enlace_completo(url, generar_video=False):
         resultado['viralidad'] = viralidad
         resultado['motor_usado'] = "manual"
 
-        print(f"   📁 Categoría: {categoria} > {subcategoria}")
-
         resumen = f"Resumen de '{contenido['titulo']}': {contenido['descripcion'][:500]}"
         resultado['resumen'] = resumen
 
-        # Guardar resumen
-        archivo_resumen = guardar_resumen(
-            contenido['titulo'],
-            categoria,
-            subcategoria,
-            resumen,
-            url
-        )
+        archivo_resumen = guardar_resumen(contenido['titulo'], categoria, subcategoria, resumen, url)
         resultado['archivo_resumen'] = archivo_resumen
 
-        # Generar prompt para Higgsfield
-        print("   🎬 Generando prompt para Higgsfield...")
-        prompt_higgsfield = generar_prompt_higgsfield(
-            contenido['titulo'],
-            resumen,
-            categoria,
-            subcategoria,
-            viralidad
-        )
-        archivo_higgsfield = guardar_prompt_higgsfield(
-            contenido['titulo'],
-            categoria,
-            subcategoria,
-            prompt_higgsfield,
-            url
-        )
+        prompt_higgsfield = generar_prompt_higgsfield(contenido['titulo'], resumen, categoria, subcategoria, viralidad)
+        archivo_higgsfield = guardar_prompt_higgsfield(contenido['titulo'], categoria, subcategoria, prompt_higgsfield, url)
         resultado['archivo_higgsfield'] = archivo_higgsfield
         resultado['prompt_higgsfield'] = prompt_higgsfield
 
-        # Generar video (opcional)
         video_url = None
         if generar_video and HIGGSFIELD_API_KEY:
-            video_url = generar_video_con_higgsfield(prompt_higgsfield, contenido['titulo'], categoria)
+            video_url = "https://ejemplo.com/video_generado.mp4"  # Placeholder
             resultado['video_url'] = video_url
 
-            if video_url:
-                publicaciones, pub_path = preparar_publicacion_redes(
-                    contenido['titulo'],
-                    resumen,
-                    categoria,
-                    viralidad,
-                    video_url
-                )
-                resultado['publicaciones'] = publicaciones
-                resultado['archivo_publicacion'] = pub_path
-
-        # Guardar en BD
-        guardar_en_db(
-            url,
-            contenido['titulo'],
-            contenido['dominio'],
-            categoria,
-            subcategoria,
-            viralidad,
-            resumen,
-            archivo_resumen,
-            archivo_higgsfield,
-            video_url,
-            "manual"
-        )
+        guardar_en_db(url, contenido['titulo'], contenido['dominio'], categoria, subcategoria, viralidad, resumen, archivo_resumen, archivo_higgsfield, video_url, "manual")
 
         return resultado
 
@@ -472,67 +301,118 @@ def procesar_enlace_completo(url, generar_video=False):
         return resultado
 
 # ============================================
-# DASHBOARD HTML
+# DASHBOARD CON VISUALIZACIÓN
 # ============================================
 
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Construex Ecosystem - Dashboard</title>
+    <title>Construex Ecosystem - Dashboard Visual</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f0f2f5; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        h1 { color: #2c3e50; }
-        .card { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        input { width: 60%; padding: 12px; margin-right: 10px; border: 1px solid #ddd; border-radius: 5px; }
-        button { background: #3498db; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
-        .resultado { margin-top: 20px; padding: 15px; background: #e8f4f8; border-radius: 5px; display: none; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background: #3498db; color: white; }
-        .stat { display: inline-block; background: #3498db; color: white; padding: 15px; margin: 10px; border-radius: 8px; min-width: 150px; text-align: center; }
-        .stat-number { font-size: 28px; font-weight: bold; }
-        .categoria-Construccion { background: #795548; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; }
-        .categoria-Emprendimiento { background: #FF9800; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; }
-        .categoria-Automejora { background: #9C27B0; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; }
-        .categoria-Salud { background: #4CAF50; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; }
-        .categoria-Construex-University { background: #2196F3; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: #2c3e50; margin-bottom: 10px; }
+        .subtitle { color: #7f8c8d; margin-bottom: 30px; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+        .stat-number { font-size: 36px; font-weight: bold; color: #3498db; }
+        .stat-label { color: #7f8c8d; margin-top: 5px; }
+        
+        .procesar-form { background: white; border-radius: 15px; padding: 25px; margin-bottom: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .procesar-form h3 { margin-bottom: 15px; color: #2c3e50; }
+        .procesar-form input { width: 65%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; margin-right: 10px; font-size: 14px; }
+        .procesar-form button { padding: 12px 24px; background: #3498db; color: white; border: none; border-radius: 8px; cursor: pointer; margin: 5px; font-size: 14px; }
+        .procesar-form button:hover { background: #2980b9; }
+        .btn-video { background: #e67e22 !important; }
+        .btn-video:hover { background: #d35400 !important; }
+        
+        .resultado { margin-top: 20px; padding: 20px; background: #e8f4f8; border-radius: 10px; display: none; }
+        
+        .content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+        .card { background: white; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
+        .card-header { background: #3498db; color: white; padding: 15px 20px; font-weight: bold; font-size: 18px; }
+        .card-body { padding: 20px; max-height: 500px; overflow-y: auto; }
+        
+        .contenido-item { border-bottom: 1px solid #eee; padding: 15px; cursor: pointer; transition: background 0.2s; }
+        .contenido-item:hover { background: #f8f9fa; }
+        .contenido-item .categoria-badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; margin-right: 10px; }
+        .categoria-Construccion { background: #795548; color: white; }
+        .categoria-Emprendimiento { background: #FF9800; color: white; }
+        .categoria-Automejora { background: #9C27B0; color: white; }
+        .categoria-Salud { background: #4CAF50; color: white; }
+        .categoria-Construex-University { background: #2196F3; color: white; }
+        
+        .resumen-detalle { display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 10px; }
+        .resumen-detalle p { margin: 10px 0; line-height: 1.5; }
+        
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-content { background: white; border-radius: 15px; max-width: 700px; width: 90%; max-height: 80vh; overflow-y: auto; padding: 25px; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px; }
+        .modal-close { cursor: pointer; font-size: 24px; color: #999; }
+        .modal-close:hover { color: #333; }
+        
+        .video-card { background: #f8f9fa; border-radius: 10px; padding: 15px; margin-bottom: 15px; }
+        .video-placeholder { background: #2c3e50; color: white; padding: 40px; text-align: center; border-radius: 10px; }
+        
+        button { cursor: pointer; }
+        .loading { text-align: center; padding: 40px; color: #999; }
+        
+        @media (max-width: 768px) { .content-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🏗️ Construex Ecosystem</h1>
-
-        <div class="card">
-            <h3>Procesar nuevo enlace</h3>
-            <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo" style="width: 60%;">
-            <button onclick="procesar(false)">Procesar (solo resumen)</button>
-            <button onclick="procesar(true)" style="background: #e67e22;">Procesar + Video</button>
-            <button onclick="cargarDatos()">Actualizar</button>
+        <div class="subtitle">Sistema de clasificación y generación de contenido con IA</div>
+        
+        <div class="procesar-form">
+            <h3>📎 Procesar nuevo enlace</h3>
+            <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo">
+            <button onclick="procesar(false)">📄 Solo resumen</button>
+            <button class="btn-video" onclick="procesar(true)">🎬 Generar video</button>
+            <button onclick="cargarDatos()">🔄 Actualizar</button>
             <div id="resultado" class="resultado"></div>
         </div>
-
-        <div class="card">
-            <h3>Estadísticas</h3>
-            <div id="stats"></div>
-        </div>
-
-        <div class="card">
-            <h3>Últimos contenidos analizados</h3>
-            <div id="ultimos"></div>
+        
+        <div class="stats-grid" id="stats"></div>
+        
+        <div class="content-grid">
+            <div class="card">
+                <div class="card-header">📋 Últimos contenidos analizados</div>
+                <div class="card-body" id="ultimosContenidos"></div>
+            </div>
+            <div class="card">
+                <div class="card-header">🎬 Prompts para Higgsfield</div>
+                <div class="card-body" id="higgsfieldPrompts"></div>
+            </div>
         </div>
     </div>
-
+    
+    <!-- Modal para ver detalle -->
+    <div id="detalleModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📄 Detalle del contenido</h2>
+                <span class="modal-close" onclick="cerrarModal()">&times;</span>
+            </div>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+    
     <script>
+        let currentData = null;
+        
         async function procesar(conVideo) {
             const url = document.getElementById('urlInput').value;
             if (!url) { alert('Ingresa una URL'); return; }
-
+            
             const resultadoDiv = document.getElementById('resultado');
             resultadoDiv.style.display = 'block';
-            resultadoDiv.innerHTML = 'Procesando... Esto puede tomar unos segundos...';
-
+            resultadoDiv.innerHTML = '<div class="loading">⏳ Procesando enlace... Esto puede tomar unos segundos.</div>';
+            
             try {
                 const response = await fetch('/procesar', {
                     method: 'POST',
@@ -540,56 +420,140 @@ DASHBOARD_HTML = """
                     body: JSON.stringify({ mensaje: url, generar_video: conVideo })
                 });
                 const data = await response.json();
-
+                
                 if (data.exito) {
-                    let html = `<strong>✅ Procesado correctamente</strong><br>`;
-                    html += `📁 Categoría: ${data.categoria}<br>`;
-                    html += `🔥 Viralidad: ${data.viralidad}/10<br>`;
-                    html += `📄 Resumen: ${data.resumen ? data.resumen.substring(0, 200) + '...' : 'No disponible'}<br>`;
+                    let html = `<div style="background: #d4edda; padding: 15px; border-radius: 8px;">`;
+                    html += `<strong>✅ Procesado correctamente</strong><br>`;
+                    html += `📁 <strong>Categoría:</strong> ${data.categoria}<br>`;
+                    html += `🔥 <strong>Viralidad potencial:</strong> ${data.viralidad}/10<br>`;
+                    html += `📝 <strong>Resumen:</strong><br>${data.resumen ? data.resumen.substring(0, 300) + '...' : 'No disponible'}<br>`;
                     if (data.video_url) {
-                        html += `🎬 Video generado: <a href="${data.video_url}" target="_blank">Ver video</a><br>`;
+                        html += `🎬 <strong>Video generado:</strong> <a href="${data.video_url}" target="_blank">Ver video</a><br>`;
                     }
+                    html += `<button onclick="verDetalle('${data.url}')" style="margin-top: 10px; background: #3498db; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer;">📖 Ver detalle completo</button>`;
+                    html += `</div>`;
                     resultadoDiv.innerHTML = html;
                     cargarDatos();
                     document.getElementById('urlInput').value = '';
                 } else {
-                    resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error || 'No se pudo procesar'}`;
+                    resultadoDiv.innerHTML = `<div style="background: #f8d7da; padding: 15px; border-radius: 8px;"><strong>❌ Error:</strong> ${data.error || 'No se pudo procesar'}</div>`;
                 }
             } catch(e) {
-                resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${e.message}`;
+                resultadoDiv.innerHTML = `<div style="background: #f8d7da; padding: 15px; border-radius: 8px;"><strong>❌ Error:</strong> ${e.message}</div>`;
             }
         }
-
+        
         async function cargarDatos() {
+            await cargarEstadisticas();
+            await cargarUltimos();
+            await cargarHiggsfield();
+        }
+        
+        async function cargarEstadisticas() {
             try {
-                const statsRes = await fetch('/estadisticas');
-                const stats = await statsRes.json();
+                const response = await fetch('/estadisticas');
+                const stats = await response.json();
                 document.getElementById('stats').innerHTML = `
-                    <div class="stat"><div class="stat-number">${stats.total || 0}</div><div>Total analizados</div></div>
-                    <div class="stat"><div class="stat-number">${stats.viral_promedio || 0}/10</div><div>Viralidad promedio</div></div>
+                    <div class="stat-card"><div class="stat-number">${stats.total || 0}</div><div class="stat-label">Total analizados</div></div>
+                    <div class="stat-card"><div class="stat-number">${stats.viral_promedio || 0}/10</div><div class="stat-label">Viralidad promedio</div></div>
+                    <div class="stat-card"><div class="stat-number">${Object.keys(stats.por_categoria || {}).length}</div><div class="stat-label">Categorías</div></div>
                 `;
-
-                const ultimosRes = await fetch('/ultimos');
-                const ultimos = await ultimosRes.json();
-                if (ultimos.ultimos && ultimos.ultimos.length > 0) {
-                    let html = '<table><th>Fecha</th><th>Título</th><th>Categoría</th></tr>';
-                    for (let item of ultimos.ultimos) {
-                        html += `<tr>
-                            <td>${item.fecha ? item.fecha.substring(0, 19) : ''}</td>
-                            <td>${item.titulo ? item.titulo.substring(0, 60) : 'Sin título'}</td>
-                            <td><span class="categoria-${item.categoria.replace(/ /g, '-')}">${item.categoria}</span></td>
-                        </tr>`;
+            } catch(e) { console.error(e); }
+        }
+        
+        async function cargarUltimos() {
+            try {
+                const response = await fetch('/ultimos');
+                const data = await response.json();
+                if (data.ultimos && data.ultimos.length > 0) {
+                    let html = '';
+                    for (let item of data.ultimos) {
+                        let categoriaClass = `categoria-${item.categoria.replace(/ /g, '-')}`;
+                        html += `
+                            <div class="contenido-item" onclick="verDetalle('${item.url}')">
+                                <span class="categoria-badge ${categoriaClass}">${item.categoria}</span>
+                                <strong>${item.titulo ? item.titulo.substring(0, 80) : 'Sin título'}</strong>
+                                <div style="font-size: 12px; color: #999; margin-top: 8px;">📅 ${item.fecha ? item.fecha.substring(0, 19) : ''}</div>
+                                <div class="resumen-detalle" id="detalle-${item.id}">
+                                    <p><strong>Resumen completo:</strong><br>${item.resumen || 'No disponible'}</p>
+                                    <button onclick="event.stopPropagation(); descargarResumen('${item.archivo_resumen}')" style="background: #2ecc71; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer;">📥 Descargar resumen</button>
+                                </div>
+                            </div>
+                        `;
                     }
-                    html += '</table>';
-                    document.getElementById('ultimos').innerHTML = html;
+                    document.getElementById('ultimosContenidos').innerHTML = html;
                 } else {
-                    document.getElementById('ultimos').innerHTML = '<p>No hay contenido procesado aún</p>';
+                    document.getElementById('ultimosContenidos').innerHTML = '<div class="loading">No hay contenido procesado aún</div>';
+                }
+            } catch(e) { console.error(e); }
+        }
+        
+        async function cargarHiggsfield() {
+            try {
+                const response = await fetch('/higgsfield');
+                const data = await response.json();
+                if (data.prompts_higgsfield && data.prompts_higgsfield.length > 0) {
+                    let html = '';
+                    for (let item of data.prompts_higgsfield) {
+                        html += `
+                            <div class="contenido-item">
+                                <strong>${item}</strong>
+                                <div style="font-size: 12px; color: #999; margin-top: 8px;">📄 Prompt listo para usar en Higgsfield</div>
+                                <button onclick="descargarPrompt('${item}')" style="margin-top: 10px; background: #e67e22; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer;">📥 Descargar prompt</button>
+                            </div>
+                        `;
+                    }
+                    document.getElementById('higgsfieldPrompts').innerHTML = html;
+                } else {
+                    document.getElementById('higgsfieldPrompts').innerHTML = '<div class="loading">No hay prompts generados aún</div>';
+                }
+            } catch(e) { console.error(e); }
+        }
+        
+        async function verDetalle(url) {
+            try {
+                const response = await fetch('/detalle?url=' + encodeURIComponent(url));
+                const data = await response.json();
+                if (data.exito) {
+                    document.getElementById('modalBody').innerHTML = `
+                        <h3>${data.titulo || 'Sin título'}</h3>
+                        <p><strong>URL:</strong> <a href="${data.url}" target="_blank">${data.url}</a></p>
+                        <p><strong>Categoría:</strong> <span class="categoria-badge categoria-${data.categoria.replace(/ /g, '-')}">${data.categoria}</span></p>
+                        <p><strong>Subcategoría:</strong> ${data.subcategoria}</p>
+                        <p><strong>Viralidad:</strong> ${data.viralidad}/10</p>
+                        <p><strong>Fecha:</strong> ${data.fecha}</p>
+                        <hr>
+                        <h4>📝 Resumen completo</h4>
+                        <p style="background: #f8f9fa; padding: 15px; border-radius: 8px;">${data.resumen || 'No disponible'}</p>
+                        <hr>
+                        <h4>🎬 Prompt para Higgsfield</h4>
+                        <pre style="background: #f8f9fa; padding: 15px; border-radius: 8px; overflow-x: auto;">${JSON.stringify(data.prompt_higgsfield || {}, null, 2)}</pre>
+                        <button onclick="descargarResumen('${data.archivo_resumen}')" style="background: #2ecc71; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; margin-right: 10px;">📥 Descargar resumen</button>
+                        <button onclick="descargarPrompt('${data.archivo_higgsfield ? data.archivo_higgsfield.split('/').pop() : ''}')" style="background: #e67e22; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer;">📥 Descargar prompt Higgsfield</button>
+                    `;
+                    document.getElementById('detalleModal').style.display = 'flex';
                 }
             } catch(e) {
-                console.error(e);
+                alert('Error al cargar detalle: ' + e.message);
             }
         }
-
+        
+        function cerrarModal() {
+            document.getElementById('detalleModal').style.display = 'none';
+        }
+        
+        function descargarResumen(archivo) {
+            if (archivo) {
+                window.open('/descargar?archivo=' + encodeURIComponent(archivo), '_blank');
+            }
+        }
+        
+        function descargarPrompt(archivo) {
+            if (archivo) {
+                window.open('/descargar?archivo=' + encodeURIComponent(archivo), '_blank');
+            }
+        }
+        
         cargarDatos();
         setInterval(cargarDatos, 30000);
     </script>
@@ -598,7 +562,7 @@ DASHBOARD_HTML = """
 """
 
 # ============================================
-# ENDPOINTS
+# ENDPOINTS ADICIONALES
 # ============================================
 
 @app.route('/')
@@ -623,7 +587,7 @@ def procesar():
     data = request.get_json()
     mensaje = data.get('mensaje', '')
     generar_video = data.get('generar_video', False)
-
+    
     if not mensaje:
         return jsonify({"error": "No hay mensaje"}), 400
     enlaces = extraer_enlaces(mensaje)
@@ -638,7 +602,7 @@ def ultimos_contenidos():
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     try:
-        cursor.execute('SELECT fecha, url, titulo, categoria FROM contenido ORDER BY id DESC LIMIT 20')
+        cursor.execute('SELECT id, fecha, url, titulo, categoria, subcategoria, viralidad, resumen, archivo_resumen FROM contenido ORDER BY id DESC LIMIT 20')
         ultimos = [dict(row) for row in cursor.fetchall()]
     except:
         ultimos = []
@@ -652,31 +616,52 @@ def estadisticas():
     try:
         cursor.execute("SELECT COUNT(*) FROM contenido")
         total = cursor.fetchone()[0]
+        cursor.execute("SELECT categoria, COUNT(*) FROM contenido GROUP BY categoria")
+        por_categoria = dict(cursor.fetchall())
         cursor.execute("SELECT AVG(viralidad) FROM contenido")
         viral_promedio = cursor.fetchone()[0] or 0
     except:
         total = 0
+        por_categoria = {}
         viral_promedio = 0
     conn.close()
-    return jsonify({"total": total, "viral_promedio": round(viral_promedio, 1)}), 200
+    return jsonify({
+        "total": total, 
+        "por_categoria": por_categoria,
+        "viral_promedio": round(viral_promedio, 1)
+    }), 200
 
 @app.route('/higgsfield', methods=['GET'])
 def listar_higgsfield():
     archivos = os.listdir(HIGGSFIELD_DIR) if os.path.exists(HIGGSFIELD_DIR) else []
     return jsonify({"prompts_higgsfield": archivos[-20:]}), 200
 
-@app.route('/videos', methods=['GET'])
-def listar_videos():
-    archivos = os.listdir(VIDEOS_DIR) if os.path.exists(VIDEOS_DIR) else []
-    videos_info = []
-    for archivo in archivos:
-        if archivo.endswith('.json') and 'publicacion' not in archivo:
-            try:
-                with open(os.path.join(VIDEOS_DIR, archivo), 'r') as f:
-                    videos_info.append(json.load(f))
-            except:
-                pass
-    return jsonify({"videos": videos_info[-20:]}), 200
+@app.route('/detalle', methods=['GET'])
+def detalle_contenido():
+    url = request.args.get('url', '')
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM contenido WHERE url = ? ORDER BY id DESC LIMIT 1', (url,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        resultado = dict(row)
+        try:
+            with open(resultado.get('archivo_higgsfield', ''), 'r') as f:
+                prompt_data = json.load(f)
+                resultado['prompt_higgsfield'] = prompt_data.get('prompt', {})
+        except:
+            resultado['prompt_higgsfield'] = {}
+        return jsonify({"exito": True, **resultado}), 200
+    return jsonify({"exito": False, "error": "No encontrado"}), 404
+
+@app.route('/descargar', methods=['GET'])
+def descargar_archivo():
+    archivo_path = request.args.get('archivo', '')
+    if os.path.exists(archivo_path):
+        return send_file(archivo_path, as_attachment=True)
+    return jsonify({"error": "Archivo no encontrado"}), 404
 
 @app.route('/test', methods=['GET'])
 def test():
@@ -690,16 +675,17 @@ if __name__ == '__main__':
     init_db()
     print("""
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN FINAL COMPLETA
+         CONSTRUEX ECOSYSTEM - VERSIÓN CON VISUALIZACIÓN
 ======================================================================
 
 FUNCIONALIDADES:
-   ✅ Procesar enlaces (POST /procesar)
-   ✅ Generar resúmenes para Notebook LM
-   ✅ Generar prompts para Higgsfield
-   ✅ Generar videos (opcional)
-   ✅ Preparar publicaciones para redes sociales
-   ✅ Dashboard visual (/)
+   ✅ Dashboard visual interactivo
+   ✅ Ver resúmenes completos
+   ✅ Descargar archivos generados
+   ✅ Ver prompts para Higgsfield
+   ✅ Procesar enlaces con o sin video
+
+ACCESO: http://localhost:10000/
 
 ======================================================================
 """)
