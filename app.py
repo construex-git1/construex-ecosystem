@@ -488,12 +488,11 @@ def generar_texto_redes(titulo, analisis, categoria, enlaces):
 
 {impacto[:200] if impacto else ''}
 
-{f'🔗 {e}' for e in enlaces[:2] if enlaces else ''}
+{chr(10).join([f'🔗 {e}' for e in enlaces[:2]]) if enlaces else ''}
 
 #{categoria.replace(' ', '')} #Construex"""
     
     return instagram, facebook
-
 
 @app.route('/')
 def home():
