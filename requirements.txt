@@ -4,4 +4,4 @@ beautifulsoup4==4.12.2
 google-generativeai==0.3.2
 python-dotenv==1.0.0
 gunicorn==21.2.0
-Pillow==10.1.0
+cloudinary==1.36.0

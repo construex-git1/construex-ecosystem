@@ -1,7 +1,15 @@
+"""
+======================================================================
+         CONSTRUEX ECOSYSTEM - CON CLOUDINARY
+======================================================================
+"""
+
 import os
 import re
 import requests
-import time
+import cloudinary
+import cloudinary.uploader
+from cloudinary.utils import cloudinary_url
 from flask import Flask, request, jsonify, send_from_directory
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
@@ -10,6 +18,17 @@ from dotenv import load_dotenv
 load_dotenv()
 app = Flask(__name__)
 
+# ============================================
+# CONFIGURACION DE CLOUDINARY
+# ============================================
+
+cloudinary.config(
+    cloud_name="dcjggdlla",
+    api_key="519915375639214",
+    api_secret="0HCTwBlLe1wPHFsyLp02N_k8jHo"
+)
+
+# Directorios
 IMAGENES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "imagenes_generadas")
 os.makedirs(IMAGENES_DIR, exist_ok=True)
 
@@ -43,140 +62,63 @@ def leer_contenido_url(url):
 def clasificar_manual(titulo, descripcion, dominio):
     texto = f"{titulo} {descripcion}".lower()
     if any(p in texto for p in ["construc", "centro comercial", "mall", "obra", "empleo", "edificio", "canal"]):
-        return "Construccion", 8
+        return "Construccion", 8, "#795548"
     elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas", "inversion"]):
-        return "Emprendimiento", 7
+        return "Emprendimiento", 7, "#FF9800"
     elif any(p in texto for p in ["curso", "aprender", "educacion", "certificacion"]):
-        return "Construex University", 6
+        return "Construex University", 6, "#2196F3"
     elif any(p in texto for p in ["salud", "medico", "bienestar", "dieta"]):
-        return "Salud", 6
-    return "Automejora", 5
+        return "Salud", 6, "#4CAF50"
+    return "Automejora", 5, "#9C27B0"
 
 
-def generar_html_instagram(titulo, resumen, categoria, enlace):
-    """Genera un HTML que simula una imagen de Instagram (funciona sin Pillow)"""
+def generar_imagen_cloudinary(titulo, resumen, categoria, color):
+    """Genera imagen profesional con Cloudinary"""
     
-    colores = {
-        "Construccion": "#795548",
-        "Emprendimiento": "#FF9800", 
-        "Construex University": "#2196F3",
-        "Salud": "#4CAF50",
-        "Automejora": "#9C27B0"
-    }
-    color = colores.get(categoria, "#3498db")
+    # Limpiar texto para URL
+    titulo_clean = titulo[:60].replace(' ', '%20').replace('&', '%26')
+    resumen_clean = resumen[:200].replace(' ', '%20').replace('&', '%26')
     
-    timestamp = str(int(time.time()))
-    nombre = re.sub(r'[^\w\s-]', '', titulo[:30]).replace(' ', '_')
-    filename = f"instagram_{timestamp}_{nombre}.html"
-    filepath = os.path.join(IMAGENES_DIR, filename)
+    # Construir URL de Cloudinary con texto superpuesto
+    # Fondo con gradiente según categoría
+    base_url = "https://res.cloudinary.com/dcjggdlla/image/upload/v1/"
     
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Construex - {categoria}</title>
-    <style>
-        body {{
-            margin: 0;
-            padding: 0;
-            background: {color};
-            font-family: 'Segoe UI', Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }}
-        .card {{
-            width: 500px;
-            background: white;
-            border-radius: 20px;
-            overflow: hidden;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            margin: 20px;
-        }}
-        .header {{
-            background: {color};
-            color: white;
-            padding: 20px;
-            text-align: center;
-        }}
-        .header h1 {{
-            margin: 0;
-            font-size: 14px;
-            letter-spacing: 2px;
-        }}
-        .content {{
-            padding: 30px;
-        }}
-        .categoria {{
-            background: {color};
-            color: white;
-            display: inline-block;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 12px;
-            margin-bottom: 15px;
-        }}
-        .titulo {{
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 20px;
-            line-height: 1.3;
-        }}
-        .resumen {{
-            color: #555;
-            line-height: 1.6;
-            margin-bottom: 25px;
-        }}
-        .cta {{
-            background: {color};
-            color: white;
-            text-align: center;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }}
-        .hashtags {{
-            color: #999;
-            font-size: 12px;
-            text-align: center;
-        }}
-        .footer {{
-            background: #f8f9fa;
-            padding: 15px;
-            text-align: center;
-            font-size: 12px;
-            color: #666;
-            border-top: 1px solid #eee;
-        }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="header">
-            <h1>🏗️ CONSTRUEX ECOSYSTEM</h1>
-        </div>
-        <div class="content">
-            <div class="categoria">📁 {categoria.upper()}</div>
-            <div class="titulo">{titulo[:80]}</div>
-            <div class="resumen">{resumen[:400]}...</div>
-            <div class="cta">
-                ✨ Aprende más en Construex ✨
-            </div>
-            <div class="hashtags">
-                #{categoria.replace(' ', '')} #Construex #Educacion #Aprendizaje
-            </div>
-        </div>
-        <div class="footer">
-            👉 Comparte este contenido | Fuente: {enlace[:50]}...
-        </div>
-    </div>
-</body>
-</html>"""
+    # Crear overlay de texto para el título
+    overlay_title = f"l_text:Arial_60_bold:{titulo_clean},g_north_west,x_50,y_150,co_rgb:FFFFFF"
     
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(html)
+    # Overlay para el resumen
+    overlay_summary = f"l_text:Arial_30:{resumen_clean},g_north_west,x_50,y_300,co_rgb:FFFFFF,co_alpha:80"
     
-    return f"/imagenes/{filename}"
+    # Overlay para la categoría
+    overlay_category = f"l_text:Arial_40_bold:{categoria.upper()},g_north_west,x_50,y_80,co_rgb:FFD700"
+    
+    # Overlay para el CTA
+    overlay_cta = f"l_text:Arial_30:✨%20Aprende%20más%20en%20Construex%20✨,g_south_west,x_50,y_80,co_rgb:FFD700"
+    
+    # Overlay para hashtags
+    overlay_hashtags = f"l_text:Arial_25:%23{categoria}%20%23Construex%20%23Educacion, g_south_west,x_50,y_40,co_rgb:AAAAAA"
+    
+    # Construir URL final
+    url = f"{base_url}w_1080,h_1080,c_fill,g_center/bo_5px_solid_rgb:{color[1:]}/{overlay_category}/{overlay_title}/{overlay_summary}/{overlay_cta}/{overlay_hashtags}/bg_{color[1:]}/v1/construex_template"
+    
+    # Descargar la imagen generada
+    try:
+        response = requests.get(url, timeout=30)
+        if response.status_code == 200:
+            import time
+            timestamp = str(int(time.time()))
+            nombre = re.sub(r'[^\w\s-]', '', titulo[:30]).replace(' ', '_')
+            filename = f"instagram_{timestamp}_{nombre}.jpg"
+            filepath = os.path.join(IMAGENES_DIR, filename)
+            
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
+            
+            return f"/imagenes/{filename}"
+    except Exception as e:
+        print(f"Error generando imagen: {e}")
+    
+    return None
 
 
 @app.route('/')
@@ -185,25 +127,24 @@ def home():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Construex Ecosystem</title>
+        <title>Construex - Generador de Imágenes</title>
         <style>
             body { font-family: Arial; margin: 40px; background: #f0f2f5; text-align: center; }
             .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 15px; }
             input { width: 80%; padding: 12px; margin: 10px; border: 1px solid #ddd; border-radius: 5px; }
             button { background: #27ae60; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
             .resultado { margin-top: 20px; padding: 15px; background: #e8f4f8; border-radius: 10px; text-align: left; display: none; }
-            .preview { margin-top: 15px; text-align: center; }
-            iframe { width: 100%; height: 600px; border: none; border-radius: 10px; }
+            img { max-width: 100%; margin-top: 10px; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
         </style>
     </head>
     <body>
         <div class="container">
             <h1>🏗️ Construex Ecosystem</h1>
-            <p>Genera contenido listo para Instagram desde cualquier enlace</p>
+            <p>Genera imágenes profesionales listas para Instagram</p>
             
             <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo">
             <br>
-            <button onclick="procesar()">🚀 Generar Contenido</button>
+            <button onclick="procesar()">🚀 Generar Imagen</button>
             <div id="resultado" class="resultado"></div>
         </div>
         <script>
@@ -213,7 +154,7 @@ def home():
                 
                 const resultadoDiv = document.getElementById('resultado');
                 resultadoDiv.style.display = 'block';
-                resultadoDiv.innerHTML = '<div>⏳ Procesando...</div>';
+                resultadoDiv.innerHTML = '<div>⏳ Procesando... Generando imagen profesional</div>';
                 
                 try {
                     const response = await fetch('/procesar', {
@@ -229,13 +170,10 @@ def home():
                         html += `<strong>🔥 Viralidad:</strong> ${data.viralidad}/10<br>`;
                         html += `<strong>📝 Título:</strong> ${data.titulo}</div>`;
                         
-                        if (data.html_url) {
-                            html += `<div class="preview">`;
-                            html += `<strong>🖼️ Contenido listo para Instagram:</strong><br>`;
-                            html += `<iframe src="${data.html_url}"></iframe>`;
-                            html += `<br><a href="${data.html_url}" target="_blank" style="display: inline-block; margin-top: 10px; background: #3498db; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none;">📥 Ver/Guardar</a>`;
-                            html += `<p style="font-size:12px; color:#666; margin-top:10px;">💡 Toma una captura de pantalla para publicar en Instagram</p>`;
-                            html += `</div>`;
+                        if (data.imagen_url) {
+                            html += `<strong>🖼️ Imagen lista para Instagram:</strong><br>`;
+                            html += `<img src="${data.imagen_url}" alt="Imagen para Instagram">`;
+                            html += `<br><a href="${data.imagen_url}" download style="display: inline-block; margin-top: 10px; background: #3498db; color: white; padding: 8px 16px; border-radius: 5px; text-decoration: none;">📥 Descargar Imagen</a>`;
                         }
                         
                         resultadoDiv.innerHTML = html;
@@ -244,7 +182,7 @@ def home():
                         resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error}`;
                     }
                 } catch(e) {
-                    resultadoDiv.innerHTML = `<strong>❌ Error:</code> ${e.message}</div>`;
+                    resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${e.message}`;
                 }
             }
         </script>
@@ -269,16 +207,20 @@ def procesar():
     if not contenido['exito']:
         return jsonify({"error": contenido.get('error', 'No se pudo acceder')}), 400
     
-    categoria, viralidad = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
+    categoria, viralidad, color = clasificar_manual(contenido['titulo'], contenido['descripcion'], contenido['dominio'])
     
-    html_url = generar_html_instagram(contenido['titulo'], contenido['descripcion'], categoria, enlaces[0])
+    # Limitar resumen para la imagen
+    resumen = contenido['descripcion'][:250]
+    
+    imagen_url = generar_imagen_cloudinary(contenido['titulo'], resumen, categoria, color)
     
     return jsonify({
         "exito": True,
         "categoria": categoria,
         "viralidad": viralidad,
         "titulo": contenido['titulo'],
-        "html_url": html_url
+        "resumen": resumen,
+        "imagen_url": imagen_url
     })
 
 
