@@ -1,6 +1,6 @@
 """
 ======================================================================
-                    CONSTRUEX ECOSYSTEM - VERSIÓN PROFESIONAL
+                    CONSTRUEX ECOSYSTEM 
 ======================================================================
 """
 
@@ -491,7 +491,7 @@ if __name__ == '__main__':
     init_db()
     print("""
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN PROFESIONAL
+         CONSTRUEX ECOSYSTEM
 ======================================================================
 
 ESTRUCTURA DE CARPETAS GENERADA:
