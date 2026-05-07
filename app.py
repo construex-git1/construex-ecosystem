@@ -1,6 +1,6 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN FINAL COMPLETA
+         CONSTRUEX ECOSYSTEM - VERSIÓN FINAL DEFINITIVA
 ======================================================================
 """
 
@@ -10,10 +10,9 @@ import json
 import requests
 import sqlite3
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,18 +23,8 @@ app = Flask(__name__)
 # ============================================
 
 WHATSAPP_VERIFY_TOKEN = "construex_verify_2026"
-
-# Gemini API (principal)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    gemini_model = None
-
-# Grok API (para X/Twitter)
 GROK_API_KEY = os.getenv("GROK_API_KEY")
-GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 
 # Directorios
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -96,7 +85,6 @@ def leer_contenido_url(url):
         'titulo': '',
         'descripcion': '',
         'dominio': urlparse(url).netloc,
-        'es_x_twitter': 'twitter.com' in url or 'x.com' in url,
         'exito': False
     }
 
@@ -126,194 +114,20 @@ def leer_contenido_url(url):
     return resultado
 
 
-def clasificar_con_gemini(titulo, descripcion, dominio):
-    if not gemini_model:
-        return None
-
-    prompt = f"""
-    Clasifica este contenido en UNA de estas categorias:
-    Salud, Emprendimiento, Automejora, Construccion, Construex University
-
-    TITULO: {titulo}
-    DOMINIO: {dominio}
-    DESCRIPCION: {descripcion[:500]}
-
-    Responde SOLO con JSON: {{"categoria": "nombre", "subcategoria": "nombre", "viralidad": 7}}
-    """
-
-    try:
-        respuesta = gemini_model.generate_content(prompt)
-        texto = respuesta.text
-        if "```json" in texto:
-            texto = texto.split("```json")[1].split("```")[0]
-        return json.loads(texto.strip())
-    except Exception as e:
-        print(f"Error Gemini: {e}")
-        return None
+def clasificar_manual(titulo, descripcion, dominio):
+    texto = f"{titulo} {descripcion}".lower()
+    if any(p in texto for p in ["arquitect", "construc", "obra", "cemento", "archdaily", "building"]):
+        return "Construccion", "Proyectos", 7
+    elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas", "startup"]):
+        return "Emprendimiento", "Negocios", 7
+    elif any(p in texto for p in ["curso", "aprender", "educacion", "certificacion", "taller"]):
+        return "Construex University", "Cursos", 6
+    elif any(p in texto for p in ["salud", "medico", "bienestar", "dieta", "ejercicio"]):
+        return "Salud", "Bienestar", 6
+    return "Automejora", "Crecimiento", 5
 
 
-def clasificar_con_grok(titulo, descripcion, dominio):
-    if not GROK_API_KEY:
-        return None
-
-    prompt = f"""
-    Clasifica el siguiente contenido en UNA de estas categorías:
-    Salud, Emprendimiento, Automejora, Construccion, Construex University
-
-    Título: {titulo}
-    Dominio: {dominio}
-    Descripción: {descripcion[:500]}
-
-    Responde SOLO con formato JSON: 
-    {{"categoria": "nombre", "subcategoria": "nombre", "viralidad": 7}}
-    """
-
-    headers = {
-        "Authorization": f"Bearer {GROK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    data = {
-        "model": "grok-1.5",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,
-        "max_tokens": 150
-    }
-
-    try:
-        response = requests.post(GROK_API_URL, headers=headers, json=data, timeout=15)
-        resultado = response.json()
-        respuesta_texto = resultado['choices'][0]['message']['content']
-
-        if "```json" in respuesta_texto:
-            respuesta_texto = respuesta_texto.split("```json")[1].split("```")[0]
-
-        return json.loads(respuesta_texto)
-    except Exception as e:
-        print(f"Error Grok: {e}")
-        return None
-
-
-def clasificar_contenido(titulo, descripcion, dominio, es_x_twitter=False):
-    resultado = None
-    motor_usado = "manual"
-
-    if es_x_twitter and GROK_API_KEY:
-        print("   🔍 Usando Grok (X/Twitter)...")
-        resultado = clasificar_con_grok(titulo, descripcion, dominio)
-        if resultado:
-            motor_usado = "grok"
-
-    if not resultado and gemini_model:
-        print("   🔍 Usando Gemini...")
-        resultado = clasificar_con_gemini(titulo, descripcion, dominio)
-        if resultado:
-            motor_usado = "gemini"
-
-    if not resultado:
-        print("   ⚠️ Fallback a clasificación manual")
-        texto = f"{titulo} {descripcion}".lower()
-        if any(p in texto for p in ["construc", "arquitect", "obra", "cemento", "archdaily"]):
-            resultado = {"categoria": "Construccion", "subcategoria": "General", "viralidad": 7}
-        elif any(p in texto for p in ["negocio", "emprend", "empresa", "ventas"]):
-            resultado = {"categoria": "Emprendimiento", "subcategoria": "General", "viralidad": 7}
-        elif any(p in texto for p in ["curso", "aprender", "educacion"]):
-            resultado = {"categoria": "Construex University", "subcategoria": "General", "viralidad": 6}
-        elif any(p in texto for p in ["salud", "medico", "bienestar"]):
-            resultado = {"categoria": "Salud", "subcategoria": "General", "viralidad": 6}
-        else:
-            resultado = {"categoria": "Automejora", "subcategoria": "General", "viralidad": 5}
-        motor_usado = "fallback"
-
-    resultado['motor'] = motor_usado
-    return resultado
-
-
-def generar_resumen_notebooklm(titulo, descripcion, dominio, categoria, subcategoria):
-    if not gemini_model:
-        return f"Resumen de '{titulo}': {descripcion[:500]}"
-
-    prompt = f"""
-    Genera un resumen educativo estructurado para Notebook LM.
-
-    TITULO: {titulo}
-    CATEGORIA: {categoria}
-    SUBCATEGORIA: {subcategoria}
-    FUENTE: {dominio}
-    CONTENIDO: {descripcion[:1500]}
-
-    FORMATO EXACTO:
-    ============================================================
-    TITULO: {titulo}
-    CATEGORIA: {categoria}
-    SUBCATEGORIA: {subcategoria}
-    FUENTE: {dominio}
-    
-    RESUMEN EJECUTIVO:
-    [2-3 párrafos]
-    
-    PUNTOS CLAVE:
-    1. [primer punto]
-    2. [segundo punto]
-    3. [tercer punto]
-    
-    APLICACION PRACTICA:
-    [Cómo aplicar este conocimiento]
-    ============================================================
-    """
-
-    try:
-        respuesta = gemini_model.generate_content(prompt)
-        return respuesta.text
-    except:
-        return f"Resumen no disponible para {titulo}"
-
-
-def generar_prompt_higgsfield(titulo, resumen, categoria, subcategoria, viralidad):
-    if not gemini_model:
-        return {
-            "video_prompt": f"Video educativo sobre {categoria}: {titulo[:100]}",
-            "duration": 20,
-            "aspect_ratio": "9:16",
-            "style": "educational"
-        }
-
-    prompt = f"""
-    Genera un prompt detallado para crear un video educativo con Higgsfield.
-
-    TEMA: {titulo}
-    CATEGORIA: {categoria}
-    SUBCATEGORIA: {subcategoria}
-    VIRALIDAD POTENCIAL: {viralidad}/10
-    CONTENIDO: {resumen[:800]}
-
-    Responde SOLO con JSON:
-    {{
-        "video_prompt": "descripcion detallada",
-        "duration": 20,
-        "aspect_ratio": "9:16",
-        "style": "educational",
-        "text_overlay": "frase llamativa",
-        "hashtags": ["#tag1", "#tag2"]
-    }}
-    """
-
-    try:
-        respuesta = gemini_model.generate_content(prompt)
-        texto = respuesta.text
-        if "```json" in texto:
-            texto = texto.split("```json")[1].split("```")[0]
-        return json.loads(texto)
-    except:
-        return {
-            "video_prompt": f"Video educativo sobre {categoria}: {titulo[:100]}",
-            "duration": 20,
-            "aspect_ratio": "9:16",
-            "style": "educational"
-        }
-
-
-def guardar_resumen_notebooklm(titulo, categoria, subcategoria, resumen, url):
+def guardar_resumen(titulo, categoria, subcategoria, resumen, url):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
     filename = f"{timestamp}_{nombre_limpio}.md"
@@ -332,9 +146,6 @@ subcategory: {subcategoria}
 ---
 
 {resumen}
-
----
-📌 Para Notebook LM: Copia este texto y pégalo como fuente.
 """
 
     with open(filepath, 'w', encoding='utf-8') as f:
@@ -343,12 +154,19 @@ subcategory: {subcategoria}
     return filepath
 
 
-def guardar_prompt_higgsfield(titulo, categoria, subcategoria, prompt_data, url):
+def guardar_prompt_higgsfield(titulo, categoria, subcategoria, url):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
     filename = f"{timestamp}_{nombre_limpio}.json"
     filepath = os.path.join(HIGGSFIELD_DIR, filename)
 
+    prompt_data = {
+        "video_prompt": f"Video educativo sobre {categoria}: {titulo[:100]}",
+        "duration": 20,
+        "aspect_ratio": "9:16",
+        "style": "educational",
+        "text_overlay": f"Aprende sobre {categoria}"
+    }
     contenido = {
         "metadata": {
             "source_url": url,
@@ -359,10 +177,8 @@ def guardar_prompt_higgsfield(titulo, categoria, subcategoria, prompt_data, url)
         },
         "prompt": prompt_data
     }
-
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(contenido, f, ensure_ascii=False, indent=2)
-
     return filepath
 
 
@@ -396,89 +212,79 @@ def guardar_en_db(url, titulo, dominio, categoria, subcategoria, viralidad, resu
 def procesar_enlace_completo(url):
     print(f"\n📡 Procesando: {url[:80]}...")
 
-    contenido = leer_contenido_url(url)
-    if not contenido['exito']:
-        return {"error": "No se pudo acceder", "url": url}
-
-    print(f"   📄 Título: {contenido['titulo'][:60]}...")
-    print(f"   🔗 Dominio: {contenido['dominio']}")
-    print(f"   🐦 Es X/Twitter: {contenido['es_x_twitter']}")
-
-    clasificacion = clasificar_contenido(
-        contenido['titulo'],
-        contenido['descripcion'],
-        contenido['dominio'],
-        contenido['es_x_twitter']
-    )
-
-    categoria = clasificacion['categoria']
-    subcategoria = clasificacion['subcategoria']
-    viralidad = clasificacion['viralidad']
-    motor_usado = clasificacion.get('motor', 'manual')
-
-    print(f"   📁 Categoría: {categoria} > {subcategoria} (motor: {motor_usado})")
-
-    resumen = generar_resumen_notebooklm(
-        contenido['titulo'],
-        contenido['descripcion'],
-        contenido['dominio'],
-        categoria,
-        subcategoria
-    )
-
-    prompt_higgsfield = generar_prompt_higgsfield(
-        contenido['titulo'],
-        resumen,
-        categoria,
-        subcategoria,
-        viralidad
-    )
-
-    archivo_resumen = guardar_resumen_notebooklm(
-        contenido['titulo'],
-        categoria,
-        subcategoria,
-        resumen,
-        url
-    )
-
-    archivo_higgsfield = guardar_prompt_higgsfield(
-        contenido['titulo'],
-        categoria,
-        subcategoria,
-        prompt_higgsfield,
-        url
-    )
-
-    guardar_en_db(
-        url,
-        contenido['titulo'],
-        contenido['dominio'],
-        categoria,
-        subcategoria,
-        viralidad,
-        resumen,
-        archivo_resumen,
-        archivo_higgsfield,
-        motor_usado
-    )
-
-    return {
+    resultado = {
         "exito": True,
         "url": url,
-        "titulo": contenido['titulo'],
-        "categoria": categoria,
-        "subcategoria": subcategoria,
-        "viralidad": viralidad,
-        "motor_usado": motor_usado,
-        "archivo_resumen": archivo_resumen,
-        "archivo_higgsfield": archivo_higgsfield,
-        "resumen": resumen
+        "error": None
     }
+
+    try:
+        contenido = leer_contenido_url(url)
+        if not contenido['exito']:
+            resultado['error'] = "No se pudo acceder al enlace"
+            resultado['exito'] = False
+            return resultado
+
+        resultado['titulo'] = contenido['titulo']
+        print(f"   📄 Título: {contenido['titulo'][:60]}...")
+
+        categoria, subcategoria, viralidad = clasificar_manual(
+            contenido['titulo'],
+            contenido['descripcion'],
+            contenido['dominio']
+        )
+
+        resultado['categoria'] = categoria
+        resultado['subcategoria'] = subcategoria
+        resultado['viralidad'] = viralidad
+        resultado['motor_usado'] = "manual"
+
+        print(f"   📁 Categoría: {categoria} > {subcategoria}")
+
+        resumen = f"Resumen de '{contenido['titulo']}': {contenido['descripcion'][:500]}"
+        resultado['resumen'] = resumen
+
+        archivo_resumen = guardar_resumen(
+            contenido['titulo'],
+            categoria,
+            subcategoria,
+            resumen,
+            url
+        )
+        resultado['archivo_resumen'] = archivo_resumen
+
+        archivo_higgsfield = guardar_prompt_higgsfield(
+            contenido['titulo'],
+            categoria,
+            subcategoria,
+            url
+        )
+        resultado['archivo_higgsfield'] = archivo_higgsfield
+
+        guardar_en_db(
+            url,
+            contenido['titulo'],
+            contenido['dominio'],
+            categoria,
+            subcategoria,
+            viralidad,
+            resumen,
+            archivo_resumen,
+            archivo_higgsfield,
+            "manual"
+        )
+
+        return resultado
+
+    except Exception as e:
+        print(f"   ❌ Error: {e}")
+        resultado['exito'] = False
+        resultado['error'] = str(e)
+        return resultado
 
 
 # ============================================
-# DASHBOARD VISUAL (INTERFAZ WEB)
+# DASHBOARD HTML (VERSIÓN SIMPLIFICADA QUE FUNCIONA)
 # ============================================
 
 DASHBOARD_HTML = """
@@ -487,159 +293,61 @@ DASHBOARD_HTML = """
 <head>
     <title>Construex Ecosystem - Dashboard</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; padding: 20px; }
-        .container { max-width: 1400px; margin: 0 auto; }
-        h1 { color: #2c3e50; margin-bottom: 10px; }
-        .subtitle { color: #7f8c8d; margin-bottom: 30px; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
-        .stat-number { font-size: 36px; font-weight: bold; color: #3498db; }
-        .stat-label { color: #7f8c8d; margin-top: 5px; }
-        .content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-        .card { background: white; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden; }
-        .card-header { background: #3498db; color: white; padding: 15px 20px; font-weight: bold; }
-        .card-body { padding: 20px; max-height: 400px; overflow-y: auto; }
-        .card-body ul { list-style: none; }
-        .card-body li { padding: 10px 0; border-bottom: 1px solid #eee; }
-        .card-body li:last-child { border-bottom: none; }
-        .categoria-badge { display: inline-block; padding: 2px 8px; border-radius: 15px; font-size: 11px; font-weight: bold; margin-right: 10px; }
-        .Salud { background: #4CAF50; color: white; }
-        .Emprendimiento { background: #FF9800; color: white; }
-        .Automejora { background: #9C27B0; color: white; }
-        .Construccion { background: #795548; color: white; }
-        .Construex-University { background: #2196F3; color: white; }
-        .motor { font-size: 11px; color: #999; margin-left: 10px; }
-        .url { font-size: 12px; color: #666; word-break: break-all; }
-        .fecha { font-size: 11px; color: #999; }
-        .resumen-preview { font-size: 12px; color: #555; margin-top: 5px; }
-        .procesar-form { background: white; border-radius: 10px; padding: 20px; margin-bottom: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .procesar-form input { width: 70%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; margin-right: 10px; }
-        .procesar-form button { padding: 12px 24px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        .procesar-form button:hover { background: #2980b9; }
-        .resultado { margin-top: 15px; padding: 15px; background: #e8f4f8; border-radius: 5px; display: none; }
-        .refresh-btn { background: #2ecc71; margin-left: 10px; }
-        .refresh-btn:hover { background: #27ae60; }
-        @media (max-width: 768px) { .content-grid { grid-template-columns: 1fr; } }
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f0f2f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #2c3e50; }
+        .card { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stat { display: inline-block; background: #3498db; color: white; padding: 15px; margin: 10px; border-radius: 8px; min-width: 150px; text-align: center; }
+        .stat-number { font-size: 28px; font-weight: bold; }
+        input { width: 70%; padding: 12px; margin-right: 10px; border: 1px solid #ddd; border-radius: 5px; }
+        button { background: #3498db; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; }
+        .resultado { margin-top: 20px; padding: 15px; background: #e8f4f8; border-radius: 5px; display: none; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #3498db; color: white; }
+        .categoria-Construccion { background: #795548; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; }
+        .categoria-Emprendimiento { background: #FF9800; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; }
+        .categoria-Automejora { background: #9C27B0; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; }
+        .categoria-Salud { background: #4CAF50; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; }
+        .categoria-Construex-University { background: #2196F3; color: white; padding: 3px 8px; border-radius: 12px; display: inline-block; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🏗️ Construex Ecosystem</h1>
-        <div class="subtitle">Sistema de clasificación de contenido con IA</div>
         
-        <div class="procesar-form">
+        <div class="card">
             <h3>Procesar nuevo enlace</h3>
-            <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo" style="width: 80%;">
-            <button onclick="procesarUrl()">Procesar</button>
-            <button class="refresh-btn" onclick="cargarDatos()">Actualizar Dashboard</button>
-            <div id="resultadoProcesamiento" class="resultado"></div>
-        </div>
-        
-        <div class="stats-grid" id="stats">
-            <div class="stat-card"><div class="stat-number">-</div><div class="stat-label">Total analizados</div></div>
-            <div class="stat-card"><div class="stat-number">-</div><div class="stat-label">Viralidad promedio</div></div>
-            <div class="stat-card"><div class="stat-number">-</div><div class="stat-label">Categorías</div></div>
-            <div class="stat-card"><div class="stat-number">-</div><div class="stat-label">Enlaces procesados</div></div>
-        </div>
-        
-        <div class="content-grid">
-            <div class="card">
-                <div class="card-header">📁 Últimos contenidos analizados</div>
-                <div class="card-body" id="ultimosContenidos">Cargando...</div>
-            </div>
-            <div class="card">
-                <div class="card-header">📊 Distribución por categoría</div>
-                <div class="card-body" id="distribucion">Cargando...</div>
-            </div>
+            <input type="text" id="urlInput" placeholder="https://ejemplo.com/articulo" style="width: 70%;">
+            <button onclick="procesar()">Procesar</button>
+            <button onclick="cargarDatos()">Actualizar</button>
+            <div id="resultado" class="resultado"></div>
         </div>
         
         <div class="card">
-            <div class="card-header">🎬 Prompts generados para Higgsfield</div>
-            <div class="card-body" id="higgsfieldPrompts">Cargando...</div>
+            <h3>Estadísticas</h3>
+            <div id="stats"></div>
+        </div>
+        
+        <div class="card">
+            <h3>Últimos contenidos analizados</h3>
+            <div id="ultimos"></div>
+        </div>
+        
+        <div class="card">
+            <h3>Prompts generados para Higgsfield</h3>
+            <div id="higgsfield"></div>
         </div>
     </div>
     
     <script>
-        async function cargarDatos() {
-            await cargarEstadisticas();
-            await cargarUltimos();
-            await cargarDistribucion();
-            await cargarHiggsfield();
-        }
-        
-        async function cargarEstadisticas() {
-            const response = await fetch('/estadisticas');
-            const data = await response.json();
-            document.getElementById('stats').innerHTML = `
-                <div class="stat-card"><div class="stat-number">${data.total || 0}</div><div class="stat-label">Total analizados</div></div>
-                <div class="stat-card"><div class="stat-number">${data.viral_promedio || 0}/10</div><div class="stat-label">Viralidad promedio</div></div>
-                <div class="stat-card"><div class="stat-number">${Object.keys(data.por_categoria || {}).length}</div><div class="stat-label">Categorías</div></div>
-                <div class="stat-card"><div class="stat-number">${data.total || 0}</div><div class="stat-label">Enlaces procesados</div></div>
-            `;
-        }
-        
-        async function cargarUltimos() {
-            const response = await fetch('/ultimos');
-            const data = await response.json();
-            if (data.ultimos && data.ultimos.length > 0) {
-                let html = '<ul>';
-                for (let item of data.ultimos) {
-                    html += `<li>
-                        <span class="categoria-badge ${item.categoria.replace(/ /g, '-')}">${item.categoria}</span>
-                        <strong>${item.titulo ? item.titulo.substring(0, 80) : 'Sin titulo'}</strong>
-                        <div class="url">${item.url ? item.url.substring(0, 80) : ''}...</div>
-                        <div class="fecha">${item.fecha ? item.fecha.substring(0, 19) : ''} | Motor: ${item.motor_ia || 'manual'}</div>
-                        <div class="resumen-preview">${item.resumen ? item.resumen.substring(0, 100) + '...' : ''}</div>
-                    </li>`;
-                }
-                html += '</ul>';
-                document.getElementById('ultimosContenidos').innerHTML = html;
-            } else {
-                document.getElementById('ultimosContenidos').innerHTML = '<p>No hay contenido procesado aún</p>';
-            }
-        }
-        
-        async function cargarDistribucion() {
-            const response = await fetch('/estadisticas');
-            const data = await response.json();
-            if (data.por_categoria && Object.keys(data.por_categoria).length > 0) {
-                let html = '<ul>';
-                for (let [cat, count] of Object.entries(data.por_categoria)) {
-                    html += `<li><span class="categoria-badge ${cat.replace(/ /g, '-')}">${cat}</span> ${count} contenidos</li>`;
-                }
-                html += '</ul>';
-                document.getElementById('distribucion').innerHTML = html;
-            } else {
-                document.getElementById('distribucion').innerHTML = '<p>No hay datos de distribución</p>';
-            }
-        }
-        
-        async function cargarHiggsfield() {
-            const response = await fetch('/higgsfield');
-            const data = await response.json();
-            if (data.prompts_higgsfield && data.prompts_higgsfield.length > 0) {
-                let html = '<ul>';
-                for (let item of data.prompts_higgsfield) {
-                    html += `<li><strong>${item}</strong><br><small>Prompt listo para copiar a Higgsfield</small></li>`;
-                }
-                html += '</ul>';
-                document.getElementById('higgsfieldPrompts').innerHTML = html;
-            } else {
-                document.getElementById('higgsfieldPrompts').innerHTML = '<p>No hay prompts generados aún</p>';
-            }
-        }
-        
-        async function procesarUrl() {
+        async function procesar() {
             const url = document.getElementById('urlInput').value;
-            if (!url) {
-                alert('Ingresa una URL');
-                return;
-            }
+            if (!url) { alert('Ingresa una URL'); return; }
             
-            const resultadoDiv = document.getElementById('resultadoProcesamiento');
+            const resultadoDiv = document.getElementById('resultado');
             resultadoDiv.style.display = 'block';
-            resultadoDiv.innerHTML = '<p>Procesando enlace...</p>';
+            resultadoDiv.innerHTML = 'Procesando...';
             
             try {
                 const response = await fetch('/procesar', {
@@ -652,21 +360,61 @@ DASHBOARD_HTML = """
                 if (data.exito) {
                     resultadoDiv.innerHTML = `
                         <strong>✅ Procesado correctamente</strong><br>
-                        📁 Categoría: ${data.categoria}<br>
-                        📂 Subcategoría: ${data.subcategoria}<br>
-                        🔥 Viralidad: ${data.viralidad}/10<br>
-                        🤖 Motor usado: ${data.motor_usado || 'IA'}<br>
-                        📄 Resumen: ${data.resumen ? data.resumen.substring(0, 200) + '...' : 'No disponible'}<br>
-                        📁 Archivo resumen: ${data.archivo_resumen ? data.archivo_resumen.split('/').pop() : 'N/A'}<br>
-                        🎬 Archivo Higgsfield: ${data.archivo_higgsfield ? data.archivo_higgsfield.split('/').pop() : 'N/A'}
+                        Categoría: ${data.categoria}<br>
+                        Subcategoría: ${data.subcategoria}<br>
+                        Viralidad: ${data.viralidad}/10<br>
+                        Motor usado: ${data.motor_usado || 'manual'}
                     `;
                     cargarDatos();
                     document.getElementById('urlInput').value = '';
                 } else {
                     resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error || 'No se pudo procesar'}`;
                 }
-            } catch (error) {
-                resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${error.message}`;
+            } catch(e) {
+                resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${e.message}`;
+            }
+        }
+        
+        async function cargarDatos() {
+            try {
+                const statsRes = await fetch('/estadisticas');
+                const stats = await statsRes.json();
+                document.getElementById('stats').innerHTML = `
+                    <div class="stat"><div class="stat-number">${stats.total || 0}</div><div>Total analizados</div></div>
+                    <div class="stat"><div class="stat-number">${stats.viral_promedio || 0}/10</div><div>Viralidad promedio</div></div>
+                `;
+                
+                const ultimosRes = await fetch('/ultimos');
+                const ultimos = await ultimosRes.json();
+                if (ultimos.ultimos && ultimos.ultimos.length > 0) {
+                    let html = '<table><tr><th>Fecha</th><th>Título</th><th>Categoría</th></tr>';
+                    for (let item of ultimos.ultimos) {
+                        html += `<tr>
+                            <td>${item.fecha ? item.fecha.substring(0, 19) : ''}</td>
+                            <td>${item.titulo ? item.titulo.substring(0, 60) : 'Sin título'}</td>
+                            <td><span class="categoria-${item.categoria.replace(/ /g, '-')}">${item.categoria}</span></td>
+                        </tr>`;
+                    }
+                    html += '</table>';
+                    document.getElementById('ultimos').innerHTML = html;
+                } else {
+                    document.getElementById('ultimos').innerHTML = '<p>No hay contenido procesado aún</p>';
+                }
+                
+                const hgRes = await fetch('/higgsfield');
+                const hg = await hgRes.json();
+                if (hg.prompts_higgsfield && hg.prompts_higgsfield.length > 0) {
+                    let html = '<ul>';
+                    for (let item of hg.prompts_higgsfield) {
+                        html += `<li>${item}</li>`;
+                    }
+                    html += '</ul>';
+                    document.getElementById('higgsfield').innerHTML = html;
+                } else {
+                    document.getElementById('higgsfield').innerHTML = '<p>No hay prompts generados aún</p>';
+                }
+            } catch(e) {
+                console.error(e);
             }
         }
         
@@ -708,7 +456,6 @@ def receive_whatsapp():
             value = change.get('value', {})
             messages = value.get('messages', [])
             for message in messages:
-                from_number = message.get('from')
                 if message.get('type') == 'text':
                     text = message.get('text', {}).get('body', '')
                     enlaces = extraer_enlaces(text)
@@ -738,14 +485,7 @@ def ver_estructura():
     estructura = {}
     for cat, path in CATEGORIAS_DIR.items():
         if os.path.exists(path):
-            contenido_cat = {}
-            for sub in os.listdir(path):
-                sub_path = os.path.join(path, sub)
-                if os.path.isdir(sub_path):
-                    contenido_cat[sub] = os.listdir(sub_path) if os.listdir(sub_path) else []
-                else:
-                    contenido_cat[sub] = "Archivo"
-            estructura[cat] = contenido_cat
+            estructura[cat] = os.listdir(path) if os.listdir(path) else []
     return jsonify({"estructura": estructura}), 200
 
 
@@ -760,12 +500,7 @@ def ultimos_contenidos():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT fecha, url, titulo, categoria, subcategoria, viralidad, resumen, motor_ia
-        FROM contenido
-        ORDER BY id DESC
-        LIMIT 20
-    ''')
+    cursor.execute('SELECT fecha, url, titulo, categoria FROM contenido ORDER BY id DESC LIMIT 20')
     ultimos = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify({"ultimos": ultimos}), 200
@@ -777,26 +512,15 @@ def estadisticas():
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM contenido")
     total = cursor.fetchone()[0]
-    cursor.execute("SELECT categoria, COUNT(*) FROM contenido GROUP BY categoria")
-    por_categoria = dict(cursor.fetchall())
     cursor.execute("SELECT AVG(viralidad) FROM contenido")
     viral_promedio = cursor.fetchone()[0] or 0
     conn.close()
-    return jsonify({
-        "total": total,
-        "por_categoria": por_categoria,
-        "viral_promedio": round(viral_promedio, 1)
-    }), 200
+    return jsonify({"total": total, "viral_promedio": round(viral_promedio, 1)}), 200
 
 
 @app.route('/test', methods=['GET'])
 def test():
-    return jsonify({
-        "status": "ok",
-        "gemini_configured": bool(gemini_model),
-        "grok_configured": bool(GROK_API_KEY),
-        "message": "Sistema Construex funcionando correctamente"
-    }), 200
+    return jsonify({"status": "ok", "message": "Sistema Construex funcionando"}), 200
 
 
 # ============================================
@@ -807,19 +531,14 @@ if __name__ == '__main__':
     init_db()
     print("""
 ======================================================================
-      CONSTRUEX ECOSYSTEM - VERSIÓN FINAL COMPLETA
+         CONSTRUEX ECOSYSTEM - VERSIÓN FINAL DEFINITIVA
 ======================================================================
 
-MOTORES IA:
-   Gemini: {}
-   Grok: {}
-
-DASHBOARD VISUAL: http://localhost:10000/
-WEBHOOK: /webhook
-PROCESAR: POST /procesar
+Dashboard: http://localhost:10000/
+Webhook: /webhook
+Procesar: POST /procesar
 
 ======================================================================
-""".format("Configurado" if gemini_model else "No configurado",
-           "Configurado" if GROK_API_KEY else "No configurado"))
+""")
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
