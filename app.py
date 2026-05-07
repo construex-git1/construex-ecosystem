@@ -1,7 +1,7 @@
 """
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN AUTOSUFICIENTE
-         Genera imágenes y videos automáticamente desde cualquier enlace
+         CONSTRUEX ECOSYSTEM - CON PROCESAMIENTO ASÍNCRONO
+         Solución para timeout en Render
 ======================================================================
 """
 
@@ -11,6 +11,8 @@ import json
 import requests
 import sqlite3
 import time
+import uuid
+import threading
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory
 from bs4 import BeautifulSoup
@@ -55,6 +57,9 @@ os.makedirs(VIDEOS_DIR, exist_ok=True)
 
 DB_FILE = os.path.join(BASE_DIR, "construex.db")
 url_cache = {}
+
+# Cola de trabajos en memoria
+trabajos = {}
 
 
 def get_db():
@@ -103,7 +108,7 @@ def leer_contenido_url(url):
     }
 
     try:
-        response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+        response = requests.get(url, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
         soup = BeautifulSoup(response.text, 'html.parser')
 
         if soup.find('title'):
@@ -129,7 +134,6 @@ def leer_contenido_url(url):
 
 
 def clasificar_con_gemini(titulo, descripcion, dominio):
-    """Clasifica usando Gemini o fallback manual"""
     if not gemini_model:
         return clasificar_manual(titulo, descripcion, dominio)
     
@@ -171,7 +175,6 @@ def clasificar_manual(titulo, descripcion, dominio):
 
 
 def generar_resumen_con_gemini(titulo, descripcion):
-    """Genera resumen usando Gemini"""
     if not gemini_model:
         return f"Resumen: {descripcion[:500]}"
     
@@ -212,7 +215,7 @@ def generar_imagen_con_higgsfield(prompt_imagen, titulo, categoria):
             "https://api.higgsfield.ai/v1/images/generations",
             headers=headers,
             json=payload,
-            timeout=120
+            timeout=60
         )
         
         if response.status_code == 200:
@@ -304,7 +307,6 @@ def generar_video_con_higgsfield(prompt_video, titulo, categoria):
 
 
 def crear_prompt_para_imagen(titulo, categoria, resumen):
-    """Crea un prompt optimizado para generar imagen"""
     return f"""
     Imagen profesional para publicación en redes sociales.
     Tema: {titulo[:100]}
@@ -316,7 +318,6 @@ def crear_prompt_para_imagen(titulo, categoria, resumen):
 
 
 def crear_prompt_para_video(titulo, categoria, resumen):
-    """Crea un prompt optimizado para generar video"""
     return f"""
     Video educativo corto para TikTok/Reels.
     Título: {titulo[:80]}
@@ -351,7 +352,6 @@ def guardar_en_db(url, titulo, dominio, categoria, viralidad, resumen, imagen_ur
 
 
 def procesar_enlace_completo(url):
-    """Procesamiento completo - genera TODO automáticamente"""
     print(f"\n📡 Procesando: {url[:80]}...")
 
     resultado = {
@@ -361,7 +361,6 @@ def procesar_enlace_completo(url):
     }
 
     try:
-        # 1. Extraer contenido
         contenido = leer_contenido_url(url)
         if not contenido['exito']:
             resultado['error'] = "No se pudo acceder al enlace"
@@ -370,7 +369,6 @@ def procesar_enlace_completo(url):
         resultado['titulo'] = contenido['titulo']
         print(f"   📄 Título: {contenido['titulo'][:60]}...")
 
-        # 2. Clasificar
         categoria, viralidad = clasificar_con_gemini(
             contenido['titulo'],
             contenido['descripcion'],
@@ -380,27 +378,19 @@ def procesar_enlace_completo(url):
         resultado['viralidad'] = viralidad
         print(f"   📁 Categoría: {categoria} (viralidad: {viralidad}/10)")
 
-        # 3. Generar resumen con Gemini
         resumen = generar_resumen_con_gemini(contenido['titulo'], contenido['descripcion'])
-        resultado['resumen'] = resumen
+        resultado['resumen'] = resumen[:500]
         print(f"   📝 Resumen generado")
 
-        # 4. Crear prompts para imagen y video
         prompt_imagen = crear_prompt_para_imagen(contenido['titulo'], categoria, resumen)
         prompt_video = crear_prompt_para_video(contenido['titulo'], categoria, resumen)
 
-        # 5. Generar imagen
-        imagen_url = generar_imagen_con_higgsfield(prompt_imagen, contenido['titulo'], categoria)
-        resultado['imagen_url'] = imagen_url
+        resultado['imagen_url'] = generar_imagen_con_higgsfield(prompt_imagen, contenido['titulo'], categoria)
+        resultado['video_url'] = generar_video_con_higgsfield(prompt_video, contenido['titulo'], categoria)
 
-        # 6. Generar video
-        video_url = generar_video_con_higgsfield(prompt_video, contenido['titulo'], categoria)
-        resultado['video_url'] = video_url
-
-        # 7. Guardar en BD
         guardar_en_db(
             url, contenido['titulo'], contenido['dominio'],
-            categoria, viralidad, resumen, imagen_url, video_url
+            categoria, viralidad, resumen, resultado['imagen_url'], resultado['video_url']
         )
 
         resultado['exito'] = True
@@ -410,6 +400,19 @@ def procesar_enlace_completo(url):
         print(f"   ❌ Error: {e}")
         resultado['error'] = str(e)
         return resultado
+
+
+def procesar_enlace_completo_async(url, job_id):
+    global trabajos
+    try:
+        resultado = procesar_enlace_completo(url)
+        trabajos[job_id]["status"] = "completed"
+        trabajos[job_id]["resultado"] = resultado
+        print(f"✅ Trabajo {job_id} completado")
+    except Exception as e:
+        trabajos[job_id]["status"] = "error"
+        trabajos[job_id]["error"] = str(e)
+        print(f"❌ Trabajo {job_id} falló: {e}")
 
 
 # ============================================
@@ -447,6 +450,8 @@ def home():
         </div>
         
         <script>
+            let jobInterval = null;
+            
             async function procesar() {
                 const url = document.getElementById('urlInput').value;
                 if (!url) { alert('Ingresa una URL'); return; }
@@ -463,35 +468,60 @@ def home():
                     });
                     const data = await response.json();
                     
-                    if (data.exito) {
-                        let html = `<strong>✅ ¡Contenido generado!</strong><br>`;
-                        html += `<p><strong>📁 Categoría:</strong> ${data.categoria}</p>`;
-                        html += `<p><strong>🔥 Viralidad:</strong> ${data.viralidad}/10</p>`;
-                        html += `<p><strong>📝 Resumen:</strong> ${data.resumen || 'No disponible'}</p>`;
+                    if (data.job_id) {
+                        resultadoDiv.innerHTML = `<div class="loading">⏳ Procesando en segundo plano... ID: ${data.job_id}<br>Espera unos momentos y actualiza.</div>`;
                         
-                        if (data.imagen_url) {
-                            html += `<hr><strong>🖼️ Imagen generada:</strong><br>`;
-                            html += `<img src="${data.imagen_url}" alt="Imagen generada" style="max-width:100%; border-radius:10px;">`;
-                            html += `<br><a href="${data.imagen_url}" download>📥 Descargar Imagen</a>`;
-                        }
-                        
-                        if (data.video_url) {
-                            html += `<hr><strong>🎬 Video generado:</strong><br>`;
-                            html += `<video controls style="max-width:100%; border-radius:10px;">
-                                        <source src="${data.video_url}" type="video/mp4">
-                                        Tu navegador no soporta video.
-                                     </video>`;
-                            html += `<br><a href="${data.video_url}" download>📥 Descargar Video</a>`;
-                        }
-                        
-                        resultadoDiv.innerHTML = html;
-                        document.getElementById('urlInput').value = '';
+                        // Consultar estado cada 5 segundos
+                        jobInterval = setInterval(async () => {
+                            const estadoRes = await fetch(`/estado/${data.job_id}`);
+                            const estadoData = await estadoRes.json();
+                            
+                            if (estadoData.status === 'completed') {
+                                clearInterval(jobInterval);
+                                mostrarResultado(estadoData.resultado);
+                            } else if (estadoData.status === 'error') {
+                                clearInterval(jobInterval);
+                                resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${estadoData.error}`;
+                            }
+                        }, 5000);
+                    } else if (data.exito) {
+                        mostrarResultado(data);
                     } else {
                         resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${data.error || 'No se pudo procesar'}`;
                     }
                 } catch(e) {
                     resultadoDiv.innerHTML = `<strong>❌ Error:</strong> ${e.message}`;
                 }
+            }
+            
+            function mostrarResultado(data) {
+                const resultadoDiv = document.getElementById('resultado');
+                let html = `<strong>✅ ¡Contenido generado!</strong><br>`;
+                html += `<p><strong>📁 Categoría:</strong> ${data.categoria}</p>`;
+                html += `<p><strong>🔥 Viralidad:</strong> ${data.viralidad}/10</p>`;
+                html += `<p><strong>📝 Resumen:</strong> ${data.resumen || 'No disponible'}</p>`;
+                
+                if (data.imagen_url) {
+                    html += `<hr><strong>🖼️ Imagen generada:</strong><br>`;
+                    html += `<img src="${data.imagen_url}" alt="Imagen generada" style="max-width:100%; border-radius:10px;">`;
+                    html += `<br><a href="${data.imagen_url}" download>📥 Descargar Imagen</a>`;
+                } else {
+                    html += `<hr><p>⚠️ No se pudo generar imagen</p>`;
+                }
+                
+                if (data.video_url) {
+                    html += `<hr><strong>🎬 Video generado:</strong><br>`;
+                    html += `<video controls style="max-width:100%; border-radius:10px;">
+                                <source src="${data.video_url}" type="video/mp4">
+                                Tu navegador no soporta video.
+                             </video>`;
+                    html += `<br><a href="${data.video_url}" download>📥 Descargar Video</a>`;
+                } else {
+                    html += `<hr><p>⚠️ No se pudo generar video</p>`;
+                }
+                
+                resultadoDiv.innerHTML = html;
+                document.getElementById('urlInput').value = '';
             }
         </script>
     </body>
@@ -509,8 +539,34 @@ def procesar():
     enlaces = extraer_enlaces(mensaje)
     if not enlaces:
         return jsonify({"error": "No se encontraron enlaces"}), 400
-    resultado = procesar_enlace_completo(enlaces[0])
-    return jsonify(resultado), 200
+    
+    # Para enlaces simples, procesar directamente
+    if len(enlaces) == 1:
+        resultado = procesar_enlace_completo(enlaces[0])
+        return jsonify(resultado), 200
+    
+    # Para múltiples enlaces, usar async
+    job_id = str(uuid.uuid4())
+    trabajos[job_id] = {"status": "processing", "resultado": None}
+    
+    thread = threading.Thread(target=procesar_enlace_completo_async, args=(enlaces[0], job_id))
+    thread.start()
+    
+    return jsonify({"job_id": job_id, "status": "processing", "message": "Procesando en segundo plano"}), 202
+
+
+@app.route('/estado/<job_id>', methods=['GET'])
+def estado_trabajo(job_id):
+    if job_id not in trabajos:
+        return jsonify({"error": "Trabajo no encontrado"}), 404
+    
+    trabajo = trabajos[job_id]
+    if trabajo["status"] == "completed":
+        return jsonify({"status": "completed", "resultado": trabajo["resultado"]}), 200
+    elif trabajo["status"] == "error":
+        return jsonify({"status": "error", "error": trabajo["error"]}), 500
+    else:
+        return jsonify({"status": "processing"}), 202
 
 
 @app.route('/imagenes/<path:filename>')
@@ -551,7 +607,7 @@ if __name__ == '__main__':
     init_db()
     print("""
 ======================================================================
-         CONSTRUEX ECOSYSTEM - VERSIÓN AUTOSUFICIENTE
+         CONSTRUEX ECOSYSTEM - CON PROCESAMIENTO ASÍNCRONO
 ======================================================================
 
 FUNCIONALIDADES:
@@ -559,7 +615,7 @@ FUNCIONALIDADES:
    ✅ Clasifica con IA (Gemini)
    ✅ Genera imagen profesional (Higgsfield)
    ✅ Genera video educativo (Higgsfield)
-   ✅ Todo automático - solo ingresa el enlace
+   ✅ Procesamiento asíncrono (sin timeout)
 
 ACCESO: http://localhost:10000/
 
