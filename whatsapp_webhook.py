@@ -1,6 +1,6 @@
 """
 ======================================================================
-                    CONSTRUEX ECOSYSTEM 
+                    CONSTRUEX ECOSYSTEM - VERSIÓN PROFESIONAL
 ======================================================================
 """
 
@@ -255,7 +255,7 @@ def guardar_resumen(titulo, categoria, subcategoria, resumen, url):
     """Guarda el resumen en la carpeta correspondiente"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"{timestamp}_{nombre_limpio}.md"  # Ahora en Markdown!
+    filename = f"{timestamp}_{nombre_limpio}.md"
     
     carpeta_base = CATEGORIAS_DIR.get(categoria, CATEGORIAS_DIR["Automejora"])
     carpeta_sub = os.path.join(carpeta_base, subcategoria)
@@ -424,7 +424,6 @@ def ver_estructura():
 
 @app.route('/admin/dashboard', methods=['GET'])
 def admin_dashboard():
-    """Dashboard interno para monitorear el sistema"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM contenido")
@@ -491,7 +490,7 @@ if __name__ == '__main__':
     init_db()
     print("""
 ======================================================================
-         CONSTRUEX ECOSYSTEM
+         CONSTRUEX ECOSYSTEM - VERSIÓN PROFESIONAL
 ======================================================================
 
 ESTRUCTURA DE CARPETAS GENERADA:
