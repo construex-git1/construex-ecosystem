@@ -1,6 +1,6 @@
 """
 ======================================================================
-                    CONSTRUEX ECOSYSTEM - VERSIÓN RENDER
+                    CONSTRUEX ECOSYSTEM - AUTOMATIZACIÓN COMPLETA
 ======================================================================
 """
 
@@ -49,11 +49,15 @@ CATEGORIAS_DIR = {
 for carpeta in CATEGORIAS_DIR.values():
     os.makedirs(carpeta, exist_ok=True)
 
+# Crear carpeta para prompts de Higgsfield
+HIGGSFIELD_DIR = os.path.join(BASE_DIR, "higgsfield_prompts")
+os.makedirs(HIGGSFIELD_DIR, exist_ok=True)
+
 DB_FILE = os.path.join(BASE_DIR, "construex.db")
 url_cache = {}
 
 # ============================================
-# BASE DE DATOS
+# BASE DE DATOS MEJORADA
 # ============================================
 
 def init_db():
@@ -70,14 +74,18 @@ def init_db():
             subcategoria TEXT,
             viralidad INTEGER,
             resumen TEXT,
-            archivo TEXT
+            archivo_resumen TEXT,
+            prompt_higgsfield TEXT,
+            archivo_higgsfield TEXT,
+            publicado BOOLEAN DEFAULT 0
         )
     ''')
     conn.commit()
     conn.close()
+    print("✅ Base de datos inicializada")
 
 # ============================================
-# FUNCIONES
+# FUNCIONES DE GENERACIÓN
 # ============================================
 
 def extraer_enlaces(texto):
@@ -145,23 +153,68 @@ def clasificar_con_ia(titulo, descripcion, dominio):
     except:
         return {"categoria": "Automejora", "subcategoria": "General", "viralidad": 5}
 
-def guardar_resumen(titulo, categoria, subcategoria, resumen, url):
+# ============================================
+# FUNCIÓN 1: Resumen para Notebook LM
+# ============================================
+
+def generar_resumen_notebooklm(titulo, descripcion, dominio, categoria, subcategoria):
+    prompt = f"""
+    Genera un resumen educativo estructurado para Notebook LM.
+
+    TITULO: {titulo}
+    CATEGORIA: {categoria}
+    SUBCATEGORIA: {subcategoria}
+    FUENTE: {dominio}
+    CONTENIDO: {descripcion[:1500]}
+
+    FORMATO EXACTO:
+    ============================================================
+    TITULO: {titulo}
+    CATEGORIA: {categoria}
+    SUBCATEGORIA: {subcategoria}
+    FUENTE: {dominio}
+    
+    RESUMEN EJECUTIVO:
+    [2-3 párrafos]
+    
+    PUNTOS CLAVE:
+    1. [primer punto]
+    2. [segundo punto]
+    3. [tercer punto]
+    
+    APLICACION PRACTICA:
+    [Cómo aplicar este conocimiento]
+    ============================================================
+    """
+    
+    try:
+        respuesta = gemini_model.generate_content(prompt)
+        return respuesta.text
+    except:
+        return f"Resumen no disponible para {titulo}"
+
+def guardar_resumen_notebooklm(titulo, categoria, subcategoria, resumen, url):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
-    filename = f"{timestamp}_{nombre_limpio}.txt"
+    filename = f"{timestamp}_{nombre_limpio}.md"
     
     carpeta_base = CATEGORIAS_DIR.get(categoria, CATEGORIAS_DIR["Automejora"])
     carpeta_sub = os.path.join(carpeta_base, subcategoria)
     os.makedirs(carpeta_sub, exist_ok=True)
     filepath = os.path.join(carpeta_sub, filename)
     
-    contenido = f"""CONTENIDO PARA NOTEBOOK LM
-Fuente: {url}
-Fecha: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-Categoria: {categoria}
-Subcategoria: {subcategoria}
+    contenido = f"""---
+title: {titulo}
+source: {url}
+date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+category: {categoria}
+subcategory: {subcategoria}
+---
 
 {resumen}
+
+---
+📌 Para Notebook LM: Copia este texto y pégalo como fuente.
 """
     
     with open(filepath, 'w', encoding='utf-8') as f:
@@ -169,11 +222,87 @@ Subcategoria: {subcategoria}
     
     return filepath
 
+# ============================================
+# FUNCIÓN 2: Prompt para Higgsfield (videos)
+# ============================================
+
+def generar_prompt_higgsfield(titulo, resumen, categoria, subcategoria, viralidad):
+    prompt = f"""
+    Genera un prompt detallado para crear un video educativo con Higgsfield.
+
+    INFORMACION DEL CONTENIDO:
+    TEMA: {titulo}
+    CATEGORIA: {categoria}
+    SUBCATEGORIA: {subcategoria}
+    VIRALIDAD POTENCIAL: {viralidad}/10
+    CONTENIDO: {resumen[:800]}
+
+    FORMATO DE RESPUESTA (JSON):
+    {{
+        "video_prompt": "descripcion detallada para generar el video",
+        "duracion": 20,
+        "aspect_ratio": "9:16",
+        "estilo": "educativo",
+        "texto_overlay": "frase llamativa",
+        "recomendaciones": ["recomendacion1", "recomendacion2"],
+        "hashtags": ["#tag1", "#tag2"]
+    }}
+    """
+    
+    try:
+        respuesta = gemini_model.generate_content(prompt)
+        texto = respuesta.text
+        if "```json" in texto:
+            texto = texto.split("```json")[1].split("```")[0]
+        return json.loads(texto)
+    except:
+        return {
+            "video_prompt": f"Video educativo sobre {categoria}: {titulo[:100]}",
+            "duracion": 20,
+            "aspect_ratio": "9:16",
+            "estilo": "educativo",
+            "texto_overlay": f"Aprende sobre {subcategoria}",
+            "recomendaciones": ["Usar ejemplos visuales", "Incluir datos clave"],
+            "hashtags": [f"#{categoria.replace(' ', '')}", "#educacion", "#aprende"]
+        }
+
+def guardar_prompt_higgsfield(titulo, categoria, subcategoria, prompt_data, url):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    nombre_limpio = re.sub(r'[^\w\s-]', '', titulo[:50]).replace(' ', '_')
+    filename = f"{timestamp}_{nombre_limpio}.json"
+    filepath = os.path.join(HIGGSFIELD_DIR, filename)
+    
+    contenido = {
+        "metadata": {
+            "source_url": url,
+            "category": categoria,
+            "subcategory": subcategoria,
+            "fecha": datetime.now().isoformat(),
+            "titulo": titulo
+        },
+        "prompt": prompt_data
+    }
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(contenido, f, ensure_ascii=False, indent=2)
+    
+    return filepath
+
+# ============================================
+# FUNCIÓN 3: Procesamiento completo
+# ============================================
+
 def procesar_enlace_completo(url):
+    """Procesa un enlace y genera TODO: resumen + prompt para Higgsfield"""
+    
+    print(f"📡 Procesando: {url[:80]}...")
+    
+    # 1. Extraer contenido
     contenido = leer_contenido_url(url)
     if not contenido['exito']:
         return {"error": "No se pudo acceder", "url": url}
     
+    # 2. Clasificar
     clasificacion = clasificar_con_ia(
         contenido['titulo'],
         contenido['descripcion'],
@@ -184,15 +313,65 @@ def procesar_enlace_completo(url):
     subcategoria = clasificacion['subcategoria']
     viralidad = clasificacion['viralidad']
     
-    resumen = f"Resumen: {contenido['descripcion'][:500]}"
+    print(f"   📁 {categoria} > {subcategoria}")
     
-    archivo = guardar_resumen(
+    # 3. Generar resumen para Notebook LM
+    resumen = generar_resumen_notebooklm(
+        contenido['titulo'],
+        contenido['descripcion'],
+        contenido['dominio'],
+        categoria,
+        subcategoria
+    )
+    
+    # 4. Guardar resumen
+    archivo_resumen = guardar_resumen_notebooklm(
         contenido['titulo'],
         categoria,
         subcategoria,
         resumen,
         url
     )
+    
+    # 5. Generar prompt para Higgsfield
+    prompt_higgsfield = generar_prompt_higgsfield(
+        contenido['titulo'],
+        resumen,
+        categoria,
+        subcategoria,
+        viralidad
+    )
+    
+    # 6. Guardar prompt de Higgsfield
+    archivo_higgsfield = guardar_prompt_higgsfield(
+        contenido['titulo'],
+        categoria,
+        subcategoria,
+        prompt_higgsfield,
+        url
+    )
+    
+    # 7. Guardar en BD
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO contenido (fecha, url, titulo, dominio, categoria, subcategoria, viralidad, resumen, archivo_resumen, prompt_higgsfield, archivo_higgsfield)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        datetime.now().isoformat(),
+        url,
+        contenido['titulo'][:200],
+        contenido['dominio'],
+        categoria,
+        subcategoria,
+        viralidad,
+        resumen[:500],
+        archivo_resumen,
+        json.dumps(prompt_higgsfield),
+        archivo_higgsfield
+    ))
+    conn.commit()
+    conn.close()
     
     return {
         "exito": True,
@@ -201,7 +380,9 @@ def procesar_enlace_completo(url):
         "categoria": categoria,
         "subcategoria": subcategoria,
         "viralidad": viralidad,
-        "archivo": archivo
+        "archivo_resumen": archivo_resumen,
+        "archivo_higgsfield": archivo_higgsfield,
+        "prompt_higgsfield": prompt_higgsfield
     }
 
 # ============================================
@@ -213,7 +394,13 @@ def home():
     return jsonify({
         "servicio": "Construex Ecosystem",
         "estado": "activo",
-        "version": "1.0.0"
+        "version": "3.0.0",
+        "funcionalidades": [
+            "Clasificacion de enlaces",
+            "Generacion de resumenes para Notebook LM",
+            "Generacion de prompts para Higgsfield (videos)",
+            "Publicacion automatica (proximamente)"
+        ]
     })
 
 @app.route('/webhook', methods=['GET'])
@@ -241,15 +428,59 @@ def procesar():
     resultado = procesar_enlace_completo(enlaces[0])
     return jsonify(resultado), 200
 
+@app.route('/estructura', methods=['GET'])
+def ver_estructura():
+    estructura = {}
+    for cat, path in CATEGORIAS_DIR.items():
+        if os.path.exists(path):
+            estructura[cat] = os.listdir(path) if os.listdir(path) else []
+    return jsonify({"estructura": estructura}), 200
+
+@app.route('/higgsfield', methods=['GET'])
+def listar_higgsfield():
+    archivos = os.listdir(HIGGSFIELD_DIR) if os.path.exists(HIGGSFIELD_DIR) else []
+    return jsonify({"prompts_higgsfield": archivos[-20:]})
+
+@app.route('/estadisticas', methods=['GET'])
+def estadisticas():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM contenido")
+    total = cursor.fetchone()[0]
+    cursor.execute("SELECT categoria, COUNT(*) FROM contenido GROUP BY categoria")
+    stats = dict(cursor.fetchall())
+    conn.close()
+    return jsonify({"total": total, "por_categoria": stats})
+
 # ============================================
-# MAIN - CORREGIDO PARA RENDER
+# MAIN
 # ============================================
 
 if __name__ == '__main__':
     init_db()
     print("""
 ======================================================================
-         CONSTRUEX ECOSYSTEM - CORRIENDO
+         CONSTRUEX ECOSYSTEM - AUTOMATIZACIÓN COMPLETA
+======================================================================
+
+ESTRUCTURA GENERADA:
+   📁 contenido/
+      📁 Salud/
+      📁 Emprendimiento/
+      📁 Automejora/
+      📁 Construccion/
+      📁 Construex_University/
+   📁 higgsfield_prompts/
+
+FUNCIONALIDADES ACTIVAS:
+   ✅ Procesar enlaces: POST /procesar
+   ✅ Generar resumen para Notebook LM
+   ✅ Generar prompt para Higgsfield (videos)
+   ✅ Almacenar en estructura organizada
+   ✅ Ver estructura: GET /estructura
+   ✅ Ver prompts: GET /higgsfield
+   ✅ Estadisticas: GET /estadisticas
+
 ======================================================================
 """)
     port = int(os.environ.get("PORT", 10000))
