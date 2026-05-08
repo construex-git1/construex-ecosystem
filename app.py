@@ -330,41 +330,21 @@ def privacy_policy():
         <div class="date">Última actualización: 8 de mayo de 2026</div>
         
         <h2>1. Información que recopilamos</h2>
-        <p>Construex recopila los mensajes de WhatsApp que los usuarios envían a nuestro número de negocio (+593 98 393 8439), incluyendo enlaces, textos y archivos multimedia que contengan. No recopilamos información personal identificable más allá de lo necesario para operar el servicio.</p>
+        <p>Construex recopila los mensajes de WhatsApp que los usuarios envían a nuestro número de negocio (+593 98 393 8439), incluyendo enlaces, textos y archivos multimedia.</p>
         
-        <h2>2. Cómo usamos tu información</h2>
+        <h2>2. Uso de la información</h2>
         <p>La información recopilada se utiliza exclusivamente para:</p>
         <ul>
-            <li>Procesar y analizar el contenido de los enlaces compartidos por los usuarios</li>
-            <li>Generar resúmenes, imágenes y contenido educativo basado en el análisis</li>
-            <li>Mejorar la calidad y precisión de nuestro servicio automatizado</li>
-            <li>Identificar tendencias y oportunidades en los sectores de construcción, emprendimiento, salud y educación</li>
+            <li>Procesar y analizar el contenido de los enlaces compartidos</li>
+            <li>Generar resúmenes, imágenes y contenido educativo</li>
+            <li>Mejorar la calidad y precisión de nuestro servicio</li>
         </ul>
         
         <h2>3. Compartición de datos con terceros</h2>
-        <p>Para operar nuestro servicio, utilizamos las siguientes plataformas de terceros, cada una con sus propias políticas de privacidad:</p>
-        <ul>
-            <li><strong>Google Gemini</strong> - Para el análisis de contenido y generación de resúmenes</li>
-            <li><strong>Notion</strong> - Para el almacenamiento organizado de contenido procesado</li>
-            <li><strong>WhatsApp Cloud API</strong> - Para la recepción y envío de mensajes</li>
-            <li><strong>Render</strong> - Para el alojamiento del servidor y la base de datos</li>
-        </ul>
-        <p>No vendemos, alquilamos ni compartimos tu información personal con terceros para fines de marketing.</p>
+        <p>Utilizamos Google Gemini para el análisis de contenido, que tiene sus propias políticas de privacidad.</p>
         
-        <h2>4. Almacenamiento y seguridad de los datos</h2>
-        <p>Tus datos se almacenan de forma segura en servidores de Render con cifrado en tránsito (TLS). Implementamos medidas de seguridad estándar de la industria para proteger tu información contra acceso no autorizado, alteración o destrucción.</p>
-        
-        <h2>5. Tus derechos</h2>
-        <p>Tienes derecho a:</p>
-        <ul>
-            <li>Solicitar acceso a tus datos personales</li>
-            <li>Solicitar la corrección de datos incorrectos</li>
-            <li>Solicitar la eliminación de tus datos</li>
-            <li>Oponerte al procesamiento de tus datos</li>
-        </ul>
-        
-        <h2>6. Contacto</h2>
-        <p>Para cualquier pregunta sobre esta política de privacidad o sobre tus datos personales, contáctanos en: <strong>david.fierro@construex.com.mx</strong></p>
+        <h2>4. Contacto</h2>
+        <p>Para preguntas sobre esta política: <strong>david.fierro@construex.com.mx</strong></p>
         
         <div class="footer">
             <p>Construex - Innovación en construcción y educación</p>
@@ -396,48 +376,19 @@ def terms_of_service():
         <div class="date">Última actualización: 8 de mayo de 2026</div>
         
         <h2>1. Aceptación de los términos</h2>
-        <p>Al interactuar con nuestro servicio de WhatsApp (+593 98 393 8439) o utilizar nuestra plataforma, aceptas quedar vinculado por estos Términos de Servicio en su totalidad.</p>
+        <p>Al interactuar con nuestro servicio de WhatsApp (+593 98 393 8439), aceptas estos términos.</p>
         
         <h2>2. Descripción del servicio</h2>
-        <p>Construex ofrece un servicio automatizado que:</p>
-        <ul>
-            <li>Recibe enlaces de noticias y contenido enviado por WhatsApp</li>
-            <li>Analiza el contenido utilizando inteligencia artificial (Gemini)</li>
-            <li>Genera resúmenes, imágenes y contenido educativo</li>
-            <li>Clasifica el contenido en categorías relevantes</li>
-            <li>Almacena el contenido procesado para análisis y mejora continua</li>
-        </ul>
+        <p>Construex ofrece un servicio automatizado que recibe enlaces de noticias, los analiza con IA y genera contenido educativo.</p>
         
-        <h2>3. Uso adecuado y conducta prohibida</h2>
-        <p>Al utilizar nuestro servicio, te comprometes a:</p>
-        <ul>
-            <li>No enviar contenido ilegal, ofensivo, difamatorio, obsceno o amenazante</li>
-            <li>No utilizar el servicio para acosar, abusar o dañar a terceros</li>
-            <li>No intentar descompilar, realizar ingeniería inversa o extraer el código fuente del sistema</li>
-            <li>No sobrecargar intencionalmente nuestra infraestructura</li>
-            <li>No utilizar el servicio para actividades fraudulentas o engañosas</li>
-        </ul>
+        <h2>3. Uso adecuado</h2>
+        <p>No se permite enviar contenido ilegal, ofensivo o dañino. No se permite sobrecargar intencionalmente nuestra infraestructura.</p>
         
-        <h2>4. Propiedad intelectual</h2>
-        <p>Todo el contenido generado por nuestro sistema (resúmenes, imágenes, análisis) es propiedad de Construex. El contenido original de los enlaces enviados pertenece a sus respectivos autores y fuentes.</p>
+        <h2>4. Modificaciones del servicio</h2>
+        <p>Nos reservamos el derecho de modificar o discontinuar el servicio en cualquier momento.</p>
         
-        <h2>5. Limitación de responsabilidad</h2>
-        <p>Construex no se hace responsable por:</p>
-        <ul>
-            <li>La precisión, integridad o actualidad del contenido generado automáticamente, ya que proviene de algoritmos de IA y fuentes externas</li>
-            <li>Interrupciones del servicio debido a mantenimiento, fallos técnicos o eventos fuera de nuestro control</li>
-            <li>El mal uso del servicio por parte de terceros</li>
-            <li>Decisiones tomadas basadas en el contenido generado por nuestro sistema</li>
-        </ul>
-        
-        <h2>6. Modificaciones del servicio</h2>
-        <p>Nos reservamos el derecho de modificar, suspender o discontinuar cualquier aspecto del servicio en cualquier momento, con o sin previo aviso.</p>
-        
-        <h2>7. Ley aplicable</h2>
-        <p>Estos términos se rigen por las leyes de la República del Ecuador.</p>
-        
-        <h2>8. Contacto</h2>
-        <p>Para preguntas sobre estos términos: <strong>david.fierro@construex.com.mx</strong></p>
+        <h2>5. Contacto</h2>
+        <p>Para preguntas: <strong>david.fierro@construex.com.mx</strong></p>
         
         <div class="footer">
             <p>Construex - Innovación en construcción y educación</p>
@@ -469,37 +420,18 @@ def data_deletion():
         <div class="date">Última actualización: 8 de mayo de 2026</div>
         
         <h2>¿Cómo solicitar la eliminación de tus datos?</h2>
-        <p>Si deseas que eliminemos toda la información personal que hayamos recopilado sobre ti, puedes hacerlo siguiendo uno de estos métodos:</p>
-        
-        <h3>📱 Opción 1: Enviar un mensaje de WhatsApp</h3>
-        <p>Envía un mensaje al número <strong>+593 98 393 8439</strong> con el siguiente texto:</p>
-        <pre style="background: #f0f0f0; padding: 15px; border-radius: 8px;">ELIMINAR MIS DATOS</pre>
-        <p>Incluye tu nombre y número de teléfono en el mensaje para que podamos identificar tu información correctamente.</p>
-        
-        <h3>✉️ Opción 2: Enviar un correo electrónico</h3>
-        <p>Envía un correo a <strong>david.fierro@construex.com.mx</strong> con:</p>
-        <ul>
-            <li>Asunto: "Eliminación de datos - [tu número de teléfono]"</li>
-            <li>Cuerpo: Tu nombre completo y número de teléfono asociado</li>
-        </ul>
+        <p>Envía un mensaje de WhatsApp al número <strong>+593 98 393 8439</strong> con el texto: <strong style="background:#f0f0f0; padding:5px 10px;">ELIMINAR MIS DATOS</strong></p>
+        <p>O envía un correo electrónico a <strong>david.fierro@construex.com.mx</strong> con el asunto "Eliminación de datos"</p>
         
         <h2>¿Qué datos eliminamos?</h2>
-        <p>Al procesar tu solicitud, eliminaremos:</p>
         <ul>
-            <li>✅ Historial de mensajes enviados a nuestro servicio</li>
-            <li>✅ Contenido generado a partir de tus interacciones</li>
-            <li>✅ Cualquier información personal asociada a tu número de teléfono</li>
-            <li>✅ Registros de actividad vinculados a tu cuenta</li>
+            <li>Historial de mensajes enviados a nuestro servicio</li>
+            <li>Contenido generado a partir de tus interacciones</li>
+            <li>Cualquier información personal asociada a tu número de teléfono</li>
         </ul>
         
         <h2>Plazo de procesamiento</h2>
-        <p>Procesaremos tu solicitud en un plazo máximo de <strong>30 días</strong> desde su recepción. Te confirmaremos por el mismo medio cuando la eliminación esté completa.</p>
-        
-        <h2>Excepciones</h2>
-        <p>Podemos retener cierta información si es requerida por ley o para fines legítimos de seguridad, como prevenir fraudes.</p>
-        
-        <h2>Contacto para dudas</h2>
-        <p>Si tienes preguntas sobre el proceso de eliminación de datos: <strong>david.fierro@construex.com.mx</strong></p>
+        <p>Procesaremos tu solicitud en un plazo máximo de <strong>30 días</strong>.</p>
         
         <div class="footer">
             <p>Construex - Comprometidos con tu privacidad</p>
