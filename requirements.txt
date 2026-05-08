@@ -8,3 +8,5 @@ newspaper3k==0.2.8
 lxml==4.9.4
 APScheduler==3.10.4
 feedparser==6.0.10
+Pillow==10.1.0
+notebooklm-py>=0.3.0
