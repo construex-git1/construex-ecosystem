@@ -46,7 +46,7 @@ class Config:
     NOTION_VERSION = "2022-06-28"
     WHATSAPP_PHONE_NUMBER_ID = os.getenv('WHATSAPP_PHONE_NUMBER_ID', '')
     WHATSAPP_ACCESS_TOKEN = os.getenv('WHATSAPP_ACCESS_TOKEN', '')
-    WHATSAPP_VERIFY_TOKEN = os.getenv('WHATSAPP_VERIFY_TOKEN', 'construex_verify_2024')
+    WHATSAPP_VERIFY_TOKEN = os.getenv('WHATSAPP_VERIFY_TOKEN', 'construex_verify_2026')
     RSS_FEEDS = os.getenv('RSS_FEEDS', '').split(',')
     AUTO_PUBLISH = os.getenv('AUTO_PUBLISH', 'false').lower() == 'true'
     AUTO_CONFIDENCE_THRESHOLD = int(os.getenv('AUTO_CONFIDENCE_THRESHOLD', '85'))
