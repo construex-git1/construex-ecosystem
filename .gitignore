@@ -1,2 +1,49 @@
-.env 
-TKG.txt 
+# Entorno virtual
+venv/
+env/
+ENV/
+.venv/
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Archivos de configuración secretos (NUNCA SUBIR)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Bases de datos
+*.db
+*.sqlite
+*.sqlite3
+
+# Archivos generados por el sistema
+imagenes_generadas/
+videos_generados/
+podcasts_generados/
+infografias_generadas/
+logs/
+*.csv
+*.log
+*.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Render
+.python-version
